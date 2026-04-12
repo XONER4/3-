@@ -1,0 +1,200 @@
+import json
+import asyncio
+import random
+from datetime import datetime, timedelta
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from sqlalchemy import select, update, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from config import BOT_PASSWORD, START_BALANCE, DAILY_BONUS, CREDIT_PERCENT, CREDIT_MAX_DAYS, ADMIN_ID
+from database import get_db
+from models import User, Transaction, CasinoGame, IQResult
+from keyboards import *
+from utils import check_rank_upgrade, add_medal, calculate_deposit_payout
+
+router = Router()
+
+# --- Состояния FSM ---
+class AuthState(StatesGroup):
+    waiting_for_password = State()
+
+class CasinoState(StatesGroup):
+    waiting_for_bet = State()
+    waiting_for_guess = State()
+
+class IQState(StatesGroup):
+    answering = State()
+
+class CreditState(StatesGroup):
+    waiting_for_amount = State()
+
+class DepositState(StatesGroup):
+    waiting_for_amount = State()
+    waiting_for_days = State()
+
+class TransferState(StatesGroup):
+    waiting_for_recipient_id = State()
+    waiting_for_amount = State()
+
+class ShopState(StatesGroup):
+    choosing_category = State()
+    choosing_item = State()
+    choosing_action = State()
+    choosing_recipient = State()
+
+class BroadcastState(StatesGroup):
+    waiting_for_message = State()
+
+# --- Фильтр для проверки авторизации ---
+async def is_authorized(user_id: int, session: AsyncSession) -> bool:
+    result = await session.execute(select(User).where(User.telegram_id == user_id))
+    user = result.scalar_one_or_none()
+    return user and user.is_authorized
+
+# --- Middleware для проверки авторизации (упрощенно, в хендлерах) ---
+# Вместо сложного middleware, будем проверять в начале каждого хендлера
+
+# --- Команда /start ---
+@router.message(Command("start"))
+async def cmd_start(message: Message, session: AsyncSession = next(get_db())):
+    user_id = message.from_user.id
+    # Проверяем, есть ли пользователь в базе
+    result = await session.execute(select(User).where(User.telegram_id == user_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        # Создаем нового пользователя
+        new_user = User(
+            telegram_id=user_id,
+            full_name=message.from_user.full_name or "Не указано",
+            balance=START_BALANCE,
+            is_authorized=False,
+            rank="Рядовой",
+            medals="[]",
+            max_balance_achieved=START_BALANCE,
+            has_taken_credit=False,
+            has_made_deposit=False,
+            gifts_sent=0,
+            purchases="[]"
+        )
+        session.add(new_user)
+        await session.commit()
+        await session.refresh(new_user)
+    
+    # Если пользователь не авторизован, просим ввести пароль
+    if not user or not user.is_authorized:
+        await message.answer(
+            "🔐 Добро пожаловать! Для входа в бота введите пароль.",
+            reply_markup=password_keyboard()
+        )
+        # Устанавливаем состояние ожидания пароля
+        # (используем FSM)
+        # Здесь код для FSM ...
+    else:
+        await message.answer(
+            "👋 С возвращением! Вы в главном меню.",
+            reply_markup=main_menu()
+        )
+
+# --- Обработчик ввода пароля (через FSM) ---
+# (Код для обработки состояния AuthState.waiting_for_password)
+# ...
+
+# --- Команда /admin (только для админа) ---
+@router.message(Command("admin"))
+async def cmd_admin(message: Message, session: AsyncSession = next(get_db())):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ У вас нет доступа к этой команде.")
+        return
+    await message.answer("🔧 Админ-панель", reply_markup=admin_panel_keyboard())
+
+# --- Обработчики callback-запросов ---
+@router.callback_query(F.data == "balance")
+async def show_balance(callback: CallbackQuery, session: AsyncSession = next(get_db())):
+    user_id = callback.from_user.id
+    result = await session.execute(select(User).where(User.telegram_id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        f"💰 Ваш текущий баланс: {user.balance:.2f} ₽",
+        reply_markup=back_keyboard()
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "casino_menu")
+async def casino_menu(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "🎰 Выберите сумму ставки:",
+        reply_markup=casino_bet_keyboard()
+    )
+    await state.set_state(CasinoState.waiting_for_bet)
+    await callback.answer()
+
+# ... (остальные обработчики для казино, кредита, вклада, магазина, теста IQ и т.д.)
+
+# --- Функция для ежедневного бонуса ---
+@router.callback_query(F.data == "daily_bonus")
+async def daily_bonus(callback: CallbackQuery, session: AsyncSession = next(get_db())):
+    user_id = callback.from_user.id
+    result = await session.execute(select(User).where(User.telegram_id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+    
+    now = datetime.now()
+    if user.last_bonus and user.last_bonus.date() == now.date():
+        await callback.answer("Вы уже получали бонус сегодня.", show_alert=True)
+        return
+    
+    user.balance += DAILY_BONUS
+    user.last_bonus = now
+    await session.commit()
+    
+    # Проверка на повышение звания
+    await check_rank_upgrade(user, session)
+    
+    await callback.message.edit_text(
+        f"🎁 Вы получили ежедневный бонус {DAILY_BONUS} ₽!\n"
+        f"💰 Ваш новый баланс: {user.balance:.2f} ₽",
+        reply_markup=back_keyboard()
+    )
+    await callback.answer()
+
+# --- Обработчик для перевода денег ---
+# (Код для перевода с проверкой получателя и обновлением балансов)
+# ...
+
+# --- Обработчик для новостей ---
+# (Код для отображения последних действий пользователей)
+# ...
+
+# --- Обработчик для личного дела (профиля) ---
+# (Код для отображения информации о пользователе, включая ФИО, звания, медали, покупки)
+# ...
+
+# --- Обработчик для магазина ---
+# (Код для отображения товаров, покупки, подарков)
+# ...
+
+# --- Обработчик для теста IQ ---
+# (Код для проведения теста, подсчета результатов, начисления бонусов/штрафов)
+# ...
+
+# --- Обработчик для кредита ---
+# (Код для расчета максимальной суммы, взятия кредита, проверки сроков)
+# ...
+
+# --- Обработчик для вклада ---
+# (Код для открытия вклада, расчета процентов, проверки срока)
+# ...
+
+# --- Обработчик для админ-панели ---
+# (Код для управления пользователями, настройками, рассылки)
+# ...
