@@ -1,18 +1,16 @@
 import json
 import random
-import asyncio
 from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select, update, delete, func, desc
+from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from config import BOT_PASSWORD, START_BALANCE, DAILY_BONUS, CREDIT_PERCENT, CREDIT_MAX_DAYS, ADMIN_ID
-from database import get_db
 from models import User, Transaction, CasinoGame, IQResult
 from keyboards import *
 from utils import check_rank_upgrade, add_medal, calculate_deposit_payout, get_rank_conditions
@@ -73,7 +71,7 @@ async def update_balance(user: User, amount: float, session: AsyncSession, type_
 
 # ---------- Обработчик команды /start ----------
 @router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext, session: AsyncSession = next(get_db())):
+async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
     user_id = message.from_user.id
     user = await get_user(user_id, session)
     
@@ -109,7 +107,7 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession =
 
 # ---------- Авторизация ----------
 @router.message(AuthState.waiting_for_password, F.text)
-async def process_password(message: Message, state: FSMContext, session: AsyncSession = next(get_db())):
+async def process_password(message: Message, state: FSMContext, session: AsyncSession):
     if message.text == BOT_PASSWORD:
         user = await get_user(message.from_user.id, session)
         user.is_authorized = True
@@ -130,7 +128,7 @@ async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.callback_query(F.data == "balance")
-async def show_balance(callback: CallbackQuery, session: AsyncSession = next(get_db())):
+async def show_balance(callback: CallbackQuery, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     if not user:
         await callback.answer("Пользователь не найден.", show_alert=True)
@@ -143,7 +141,7 @@ async def show_balance(callback: CallbackQuery, session: AsyncSession = next(get
 
 # ---------- Ежедневный бонус ----------
 @router.callback_query(F.data == "daily_bonus")
-async def daily_bonus(callback: CallbackQuery, session: AsyncSession = next(get_db())):
+async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     if not user:
         await callback.answer("Пользователь не найден.", show_alert=True)
@@ -209,7 +207,7 @@ async def casino_custom_bet(message: Message, state: FSMContext):
     await state.set_state(CasinoState.waiting_for_guess)
 
 @router.callback_query(CasinoState.waiting_for_guess, F.data.startswith("guess_"))
-async def casino_play(callback: CallbackQuery, state: FSMContext, session: AsyncSession = next(get_db())):
+async def casino_play(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     data = await state.get_data()
     bet = data.get("bet")
@@ -275,7 +273,7 @@ IQ_QUESTIONS = [
 ]
 
 @router.callback_query(F.data == "iq_test")
-async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession = next(get_db())):
+async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     if user.balance < 1000:
         await callback.answer("Для прохождения теста нужно минимум 1000 ₽ на балансе!", show_alert=True)
@@ -298,7 +296,7 @@ async def send_iq_question(message: Message, state: FSMContext, index: int):
     )
 
 @router.callback_query(IQState.answering, F.data.startswith("iq_ans_"))
-async def iq_answer(callback: CallbackQuery, state: FSMContext):
+async def iq_answer(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     data = await state.get_data()
     index = data["iq_index"]
     answers = data["iq_answers"]
@@ -313,12 +311,10 @@ async def iq_answer(callback: CallbackQuery, state: FSMContext):
         await state.update_data(iq_answers=answers, iq_index=q_idx+1)
         await send_iq_question(callback.message, state, q_idx+1)
     else:
-        # Завершение теста
-        await finish_iq_test(callback, state, answers)
+        await finish_iq_test(callback, state, answers, session)
     await callback.answer()
 
-async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: list):
-    session = next(get_db())
+async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: list, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     correct = sum(answers)
     total = len(answers)
@@ -366,7 +362,7 @@ async def credit_menu(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.callback_query(F.data == "take_credit")
-async def take_credit_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession = next(get_db())):
+async def take_credit_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     if user.credit_amount > 0:
         await callback.answer("У вас уже есть непогашенный кредит!", show_alert=True)
@@ -384,7 +380,7 @@ async def take_credit_start(callback: CallbackQuery, state: FSMContext, session:
     await callback.answer()
 
 @router.message(CreditState.waiting_for_amount, F.text)
-async def credit_amount_input(message: Message, state: FSMContext, session: AsyncSession = next(get_db())):
+async def credit_amount_input(message: Message, state: FSMContext, session: AsyncSession):
     try:
         amount = float(message.text)
     except ValueError:
@@ -423,7 +419,7 @@ async def deposit_menu(callback: CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data == "open_deposit")
-async def deposit_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession = next(get_db())):
+async def deposit_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     if user.deposit_amount > 0:
         await callback.answer("У вас уже открыт вклад!", show_alert=True)
@@ -434,7 +430,7 @@ async def deposit_start(callback: CallbackQuery, state: FSMContext, session: Asy
     await callback.answer()
 
 @router.message(DepositState.waiting_for_amount, F.text)
-async def deposit_amount(message: Message, state: FSMContext, session: AsyncSession = next(get_db())):
+async def deposit_amount(message: Message, state: FSMContext, session: AsyncSession):
     try:
         amount = float(message.text)
     except ValueError:
@@ -451,7 +447,7 @@ async def deposit_amount(message: Message, state: FSMContext, session: AsyncSess
     await state.set_state(DepositState.waiting_for_days)
 
 @router.message(DepositState.waiting_for_days, F.text)
-async def deposit_days(message: Message, state: FSMContext, session: AsyncSession = next(get_db())):
+async def deposit_days(message: Message, state: FSMContext, session: AsyncSession):
     try:
         days = int(message.text)
     except ValueError:
@@ -493,7 +489,7 @@ async def transfer_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.message(TransferState.waiting_for_recipient_id, F.text)
-async def transfer_recipient(message: Message, state: FSMContext, session: AsyncSession = next(get_db())):
+async def transfer_recipient(message: Message, state: FSMContext, session: AsyncSession):
     try:
         recip_id = int(message.text)
     except ValueError:
@@ -510,7 +506,7 @@ async def transfer_recipient(message: Message, state: FSMContext, session: Async
     await state.set_state(TransferState.waiting_for_amount)
 
 @router.message(TransferState.waiting_for_amount, F.text)
-async def transfer_amount(message: Message, state: FSMContext, session: AsyncSession = next(get_db())):
+async def transfer_amount(message: Message, state: FSMContext, session: AsyncSession):
     try:
         amount = float(message.text)
     except ValueError:
@@ -552,7 +548,7 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
 
 # ---------- Профиль (личное дело) ----------
 @router.callback_query(F.data == "profile")
-async def profile(callback: CallbackQuery, session: AsyncSession = next(get_db())):
+async def profile(callback: CallbackQuery, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     medals = json.loads(user.medals) if user.medals else []
     purchases = json.loads(user.purchases) if user.purchases else []
@@ -572,8 +568,7 @@ async def profile(callback: CallbackQuery, session: AsyncSession = next(get_db()
 
 # ---------- Новости ----------
 @router.callback_query(F.data == "news")
-async def news(callback: CallbackQuery, session: AsyncSession = next(get_db())):
-    # Последние 10 транзакций/событий
+async def news(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
         select(Transaction).options(selectinload(Transaction.user)).order_by(desc(Transaction.timestamp)).limit(10)
     )
@@ -676,7 +671,7 @@ async def shop_choose_action(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @router.callback_query(ShopState.choosing_action, F.data.startswith("action_"))
-async def shop_action(callback: CallbackQuery, state: FSMContext, session: AsyncSession = next(get_db())):
+async def shop_action(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     action = callback.data.split("_")[1]
     data = await state.get_data()
     item = data["item"]
@@ -687,7 +682,6 @@ async def shop_action(callback: CallbackQuery, state: FSMContext, session: Async
         return
     
     if action == "self":
-        # Покупка себе
         user.balance -= item["price"]
         purchases = json.loads(user.purchases) if user.purchases else []
         purchases.append(item["name"])
@@ -699,7 +693,6 @@ async def shop_action(callback: CallbackQuery, state: FSMContext, session: Async
             reply_markup=back_keyboard()
         )
     else:
-        # Подарок
         await callback.message.edit_text("Введите Telegram ID получателя:")
         await state.set_state(ShopState.choosing_recipient)
         await state.update_data(item=item)
@@ -710,7 +703,7 @@ async def shop_action(callback: CallbackQuery, state: FSMContext, session: Async
     await callback.answer()
 
 @router.message(ShopState.choosing_recipient, F.text)
-async def shop_gift(message: Message, state: FSMContext, session: AsyncSession = next(get_db())):
+async def shop_gift(message: Message, state: FSMContext, session: AsyncSession):
     try:
         recip_id = int(message.text)
     except ValueError:
@@ -728,7 +721,6 @@ async def shop_gift(message: Message, state: FSMContext, session: AsyncSession =
     
     user.balance -= item["price"]
     user.gifts_sent += 1
-    # Добавляем получателю в покупки (подарок)
     purchases = json.loads(recip.purchases) if recip.purchases else []
     purchases.append(f"{item['name']} (подарок от {user.full_name})")
     recip.purchases = json.dumps(purchases)
@@ -743,7 +735,7 @@ async def shop_gift(message: Message, state: FSMContext, session: AsyncSession =
         f"✅ Вы подарили {item['name']} пользователю {recip.full_name}!",
         reply_markup=main_menu()
     )
-    # Уведомление
+    
     from bot import bot
     try:
         await bot.send_message(
@@ -757,7 +749,7 @@ async def shop_gift(message: Message, state: FSMContext, session: AsyncSession =
 
 # ---------- Админ-панель (частично здесь, остальное в admin.py) ----------
 @router.callback_query(F.data == "admin_stats")
-async def admin_stats(callback: CallbackQuery, session: AsyncSession = next(get_db())):
+async def admin_stats(callback: CallbackQuery, session: AsyncSession):
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет доступа", show_alert=True)
         return
