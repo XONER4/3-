@@ -1,7 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# --- Главное меню (после авторизации) ---
 def main_menu():
     builder = InlineKeyboardBuilder()
     builder.row(
@@ -30,74 +29,60 @@ def main_menu():
     )
     return builder.as_markup()
 
-# --- Клавиатура для ввода пароля ---
 def password_keyboard():
     kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Ввести пароль")],
-        ],
+        keyboard=[[KeyboardButton(text="Ввести пароль")]],
         resize_keyboard=True,
         one_time_keyboard=True
     )
     return kb
 
-# --- Клавиатура для игры в казино ---
-def casino_menu_keyboard():
+def casino_bet_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="1", callback_data="guess_1"),
-        InlineKeyboardButton(text="2", callback_data="guess_2"),
-        InlineKeyboardButton(text="3", callback_data="guess_3")
+        InlineKeyboardButton(text="100 ₽", callback_data="bet_100"),
+        InlineKeyboardButton(text="500 ₽", callback_data="bet_500"),
+        InlineKeyboardButton(text="1000 ₽", callback_data="bet_1000")
     )
     builder.row(
-        InlineKeyboardButton(text="4", callback_data="guess_4"),
-        InlineKeyboardButton(text="5", callback_data="guess_5"),
-        InlineKeyboardButton(text="6", callback_data="guess_6")
+        InlineKeyboardButton(text="5000 ₽", callback_data="bet_5000"),
+        InlineKeyboardButton(text="Своя сумма", callback_data="bet_custom")
     )
-    builder.row(
-        InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")
-    )
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
 
-# --- Клавиатура для теста IQ (пример для ответов) ---
-def iq_answer_keyboard(question_num: int, options: list):
+def casino_guess_keyboard():
     builder = InlineKeyboardBuilder()
-    for idx, option in enumerate(options):
-        builder.row(InlineKeyboardButton(text=option, callback_data=f"iq_answer_{question_num}_{idx}"))
+    for i in range(1, 7):
+        builder.button(text=str(i), callback_data=f"guess_{i}")
+    builder.adjust(3)
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_casino"))
     return builder.as_markup()
 
-# --- Клавиатура для кредита ---
 def credit_menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Взять кредит", callback_data="take_credit"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
 
-# --- Клавиатура для вклада ---
 def deposit_menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Открыть вклад", callback_data="open_deposit"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
 
-# --- Клавиатура для магазина (упрощенно) ---
 def shop_menu_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="Автомобили", callback_data="shop_cars"))
-    builder.row(InlineKeyboardButton(text="Цветы", callback_data="shop_flowers"))
+    builder.row(InlineKeyboardButton(text="🚗 Автомобили", callback_data="shop_cars"))
+    builder.row(InlineKeyboardButton(text="🌸 Цветы", callback_data="shop_flowers"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
 
-# --- Клавиатура для админ-панели ---
-def admin_panel_keyboard():
+def back_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
-    builder.row(InlineKeyboardButton(text="👤 Пользователи", callback_data="admin_users"))
-    builder.row(InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin_settings"))
-    builder.row(InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
 
-# --- Клавиатура для подтверждения действий ---
 def confirm_keyboard(action: str):
     builder = InlineKeyboardBuilder()
     builder.row(
@@ -106,8 +91,10 @@ def confirm_keyboard(action: str):
     )
     return builder.as_markup()
 
-# --- Клавиатура с кнопкой "Назад" ---
-def back_keyboard():
+def admin_panel_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
+    builder.row(InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
+    builder.row(InlineKeyboardButton(text="👤 Пользователи", callback_data="admin_users"))
+    builder.row(InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin_settings"))
+    builder.row(InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"))
     return builder.as_markup()
