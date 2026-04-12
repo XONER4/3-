@@ -12,33 +12,25 @@ class User(Base):
     balance = Column(Float, default=15000.0)
     registered_at = Column(DateTime(timezone=True), server_default=func.now())
     last_bonus = Column(DateTime(timezone=True), nullable=True)
-    # Статус авторизации (True - ввел пароль)
     is_authorized = Column(Boolean, default=False)
     
-    # Для кредита
     credit_amount = Column(Float, default=0.0)
     credit_due_date = Column(DateTime(timezone=True), nullable=True)
     
-    # Для вклада
     deposit_amount = Column(Float, default=0.0)
     deposit_days = Column(Integer, default=0)
     deposit_start_date = Column(DateTime(timezone=True), nullable=True)
     
-    # Звания и медали (будем хранить как строки, можно и отдельную таблицу, но для простоты так)
     rank = Column(String, default="Рядовой")
-    medals = Column(Text, default="[]")  # JSON список медалей
+    medals = Column(Text, default="[]")
     
-    # Статистика для званий
     max_balance_achieved = Column(Float, default=15000.0)
     has_taken_credit = Column(Boolean, default=False)
     has_made_deposit = Column(Boolean, default=False)
     
-    # Статистика для магазина и подарков
-    gifts_sent = Column(Integer, default=0)  # количество подаренных вещей
-    # Здесь могли бы быть связи с покупками, но для простоты будем хранить в JSON
-    purchases = Column(Text, default="[]")  # JSON список купленных товаров
+    gifts_sent = Column(Integer, default=0)
+    purchases = Column(Text, default="[]")
     
-    # Связи с другими таблицами
     transactions = relationship("Transaction", back_populates="user")
     casino_games = relationship("CasinoGame", back_populates="user")
     iq_results = relationship("IQResult", back_populates="user")
@@ -49,7 +41,7 @@ class Transaction(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     amount = Column(Float)
-    type = Column(String)  # 'credit', 'deposit', 'casino_win', 'casino_loss', 'iq_bonus', 'gift', 'transfer_in', 'transfer_out', 'daily_bonus', 'shop_purchase'
+    type = Column(String)
     description = Column(String, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     
