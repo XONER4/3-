@@ -1,7 +1,7 @@
 import os
 
 # Токен твоего бота
-BOT_TOKEN = "6080982996:AAFh_k0uNnYjGlIS8lnrAOt_sKxsLIa3v38"
+BOT_TOKEN = "6080982996:AAFtSreoS1th7l4iFvKnqqelnL5FWz5Vo7A"
 
 # ID твоего аккаунта в Telegram (администратора)
 ADMIN_ID = 687370909
