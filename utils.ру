@@ -1,0 +1,39 @@
+import json
+from datetime import datetime, timedelta
+from sqlalchemy.ext.asyncio import AsyncSession
+from models import User
+
+# Проверка и обновление звания
+async def check_rank_upgrade(user: User, session: AsyncSession):
+    # Обновляем максимальный достигнутый баланс
+    if user.balance > user.max_balance_achieved:
+        user.max_balance_achieved = user.balance
+    
+    # Определяем звание
+    new_rank = "Рядовой"
+    if user.max_balance_achieved >= 50000:
+        new_rank = "Ефрейтор"
+    if user.max_balance_achieved >= 150000 and (datetime.now() - user.registered_at).days >= 3:
+        new_rank = "Младший сержант"
+    if user.max_balance_achieved >= 150000 and (datetime.now() - user.registered_at).days >= 7 and user.has_taken_credit and user.has_made_deposit:
+        new_rank = "Сержант"
+    if user.max_balance_achieved >= 300000:
+        new_rank = "Старший сержант"
+    
+    if new_rank != user.rank:
+        user.rank = new_rank
+        await session.commit()
+        # Здесь можно отправить уведомление пользователю
+
+# Добавление медали
+async def add_medal(user: User, medal_name: str, session: AsyncSession):
+    medals = json.loads(user.medals) if user.medals else []
+    if medal_name not in medals:
+        medals.append(medal_name)
+        user.medals = json.dumps(medals)
+        await session.commit()
+
+# Расчет выплаты по вкладу
+def calculate_deposit_payout(amount: float, days: int) -> float:
+    # 20% в день
+    return amount * (1 + 0.2 * days)
