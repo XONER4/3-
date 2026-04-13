@@ -43,7 +43,7 @@ def password_keyboard():
     )
     return kb
 
-def casino_bet_keyboard():
+def casino_menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="🎲 Кубик", callback_data="casino_dice"),
@@ -65,6 +65,14 @@ def dice_bet_keyboard():
         InlineKeyboardButton(text="Своя сумма", callback_data="dice_custom")
     )
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_menu"))
+    return builder.as_markup()
+
+def dice_guess_keyboard():
+    builder = InlineKeyboardBuilder()
+    for i in range(1, 7):
+        builder.button(text=str(i), callback_data=f"dice_guess_{i}")
+    builder.adjust(3)
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_dice"))
     return builder.as_markup()
 
 def slots_bet_keyboard():
@@ -100,9 +108,9 @@ def shop_menu_keyboard():
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
 
-def back_keyboard():
+def back_keyboard(destination: str = "back_to_main"):
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data=destination))
     return builder.as_markup()
 
 def confirm_keyboard(action: str):
@@ -128,7 +136,8 @@ def admin_panel_keyboard():
 def profile_sections_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🏅 Звания", callback_data="profile_ranks"))
-    builder.row(InlineKeyboardButton(text="🎁 Подарки", callback_data="profile_gifts"))
+    builder.row(InlineKeyboardButton(text="🎁 Подарки/Покупки", callback_data="profile_gifts"))
     builder.row(InlineKeyboardButton(text="🏅 Медали", callback_data="profile_medals"))
+    builder.row(InlineKeyboardButton(text="📸 Загрузить фото", callback_data="profile_upload_photo"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
