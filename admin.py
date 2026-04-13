@@ -6,8 +6,8 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from config import ADMIN_ID, BOT_PASSWORD
 from models import User
-from keyboards import back_keyboard, admin_panel_keyboard
-from handlers import BroadcastState, AdminState, get_user, notify_user
+from keyboards import admin_panel_keyboard, back_keyboard
+from handlers import AdminState, BroadcastState, get_user, notify_user
 import asyncio
 
 admin_router = Router()
@@ -19,6 +19,7 @@ async def admin_panel(message: Message):
         return
     await message.answer("🔧 Админ-панель", reply_markup=admin_panel_keyboard())
 
+# --- Пополнение баланса ---
 @admin_router.callback_query(F.data == "admin_add_balance")
 async def admin_add_balance(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Введите Telegram ID пользователя:")
@@ -54,12 +55,128 @@ async def admin_balance_amount(message: Message, state: FSMContext, session: Asy
     user.balance += amount
     user.total_earned += amount
     await session.commit()
-    await message.answer(f"✅ Баланс пользователя {user.full_name} пополнен на {amount:.2f} ₽.", reply_markup=admin_panel_keyboard())
-    await notify_user(target_id, f"💰 Администратор пополнил ваш баланс на {amount:.2f} ₽.")
+    await message.answer(f"✅ Баланс пользователя {user.full_name} пополнен на {amount:,.0f} ₽.", reply_markup=admin_panel_keyboard())
+    await notify_user(target_id, f"💰 Администратор пополнил ваш баланс на {amount:,.0f} ₽.")
     await state.clear()
 
-# ... (аналогично исправлены остальные хендлеры админки)
+# --- Установка звания ---
+@admin_router.callback_query(F.data == "admin_set_rank")
+async def admin_set_rank(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Введите Telegram ID пользователя:")
+    await state.set_state(AdminState.waiting_for_user_id_rank)
+    await callback.answer()
 
+@admin_router.message(StateFilter(AdminState.waiting_for_user_id_rank))
+async def admin_rank_user_id(message: Message, state: FSMContext):
+    try:
+        user_id = int(message.text)
+    except ValueError:
+        await message.answer("ID должен быть числом.")
+        return
+    await state.update_data(target_id=user_id)
+    ranks = ["Рядовой", "Ефрейтор", "Младший сержант", "Сержант", "Старший сержант", "Лейтенант", "Старший лейтенант"]
+    await message.answer("Выберите звание (введите номер):\n" + "\n".join([f"{i+1}. {r}" for i, r in enumerate(ranks)]))
+    await state.set_state(AdminState.waiting_for_rank)
+
+@admin_router.message(StateFilter(AdminState.waiting_for_rank))
+async def admin_rank_set(message: Message, state: FSMContext, session: AsyncSession):
+    try:
+        idx = int(message.text) - 1
+        ranks = ["Рядовой", "Ефрейтор", "Младший сержант", "Сержант", "Старший сержант", "Лейтенант", "Старший лейтенант"]
+        new_rank = ranks[idx]
+    except:
+        await message.answer("Неверный номер.")
+        return
+    
+    data = await state.get_data()
+    target_id = data["target_id"]
+    user = await get_user(target_id, session)
+    if not user:
+        await message.answer("Пользователь не найден.")
+        return
+    
+    user.rank = new_rank
+    await session.commit()
+    await message.answer(f"✅ Звание пользователя {user.full_name} изменено на {new_rank}.", reply_markup=admin_panel_keyboard())
+    await notify_user(target_id, f"🎖 Администратор присвоил вам звание {new_rank}!")
+    await state.clear()
+
+# --- Смена имени ---
+@admin_router.callback_query(F.data == "admin_rename")
+async def admin_rename(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Введите Telegram ID пользователя:")
+    await state.set_state(AdminState.waiting_for_user_id_rename)
+    await callback.answer()
+
+@admin_router.message(StateFilter(AdminState.waiting_for_user_id_rename))
+async def admin_rename_user_id(message: Message, state: FSMContext):
+    try:
+        user_id = int(message.text)
+    except ValueError:
+        await message.answer("ID должен быть числом.")
+        return
+    await state.update_data(target_id=user_id)
+    await message.answer("Введите новое Имя и Фамилию:")
+    await state.set_state(AdminState.waiting_for_new_name)
+
+@admin_router.message(StateFilter(AdminState.waiting_for_new_name))
+async def admin_rename_set(message: Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    target_id = data["target_id"]
+    user = await get_user(target_id, session)
+    if not user:
+        await message.answer("Пользователь не найден.")
+        return
+    old_name = user.full_name
+    user.full_name = message.text.strip()
+    await session.commit()
+    await message.answer(f"✅ Имя пользователя изменено с {old_name} на {user.full_name}.", reply_markup=admin_panel_keyboard())
+    await notify_user(target_id, f"✏️ Администратор изменил ваше имя с {old_name} на {user.full_name}.")
+    await state.clear()
+
+# --- Смена пароля ---
+@admin_router.callback_query(F.data == "admin_change_password")
+async def admin_change_password(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Введите новый пароль для бота:")
+    await state.set_state(AdminState.waiting_for_new_password)
+    await callback.answer()
+
+@admin_router.message(StateFilter(AdminState.waiting_for_new_password))
+async def admin_password_set(message: Message, state: FSMContext):
+    global BOT_PASSWORD
+    BOT_PASSWORD = message.text.strip()
+    import config
+    config.BOT_PASSWORD = BOT_PASSWORD
+    await message.answer(f"✅ Пароль бота изменён на {BOT_PASSWORD}.", reply_markup=admin_panel_keyboard())
+    await state.clear()
+
+# --- Рассылка ---
+@admin_router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Введите текст для рассылки:")
+    await state.set_state(BroadcastState.waiting_for_message)
+    await callback.answer()
+
+@admin_router.message(StateFilter(BroadcastState.waiting_for_message))
+async def broadcast_send(message: Message, state: FSMContext, session: AsyncSession):
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text
+    result = await session.execute(select(User.telegram_id))
+    users = result.scalars().all()
+    from bot import bot
+    count = 0
+    for uid in users:
+        try:
+            await bot.send_message(uid, f"📢 Рассылка от администратора:\n\n{text}")
+            count += 1
+            await asyncio.sleep(0.05)
+        except:
+            pass
+    await message.answer(f"✅ Рассылка отправлена {count} пользователям.", reply_markup=admin_panel_keyboard())
+    await state.clear()
+
+# --- Статистика и пользователи ---
 @admin_router.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: CallbackQuery, session: AsyncSession):
     if callback.from_user.id != ADMIN_ID:
@@ -68,8 +185,8 @@ async def admin_stats(callback: CallbackQuery, session: AsyncSession):
     total_users = await session.scalar(select(func.count()).select_from(User))
     total_balance = await session.scalar(select(func.sum(User.balance)))
     await callback.message.edit_text(
-        f"📊 Статистика:\n👥 Пользователей: {total_users}\n💰 Общий баланс: {total_balance:.2f} ₽",
-        reply_markup=back_keyboard()
+        f"📊 Статистика:\n👥 Пользователей: {total_users}\n💰 Общий баланс: {total_balance:,.0f} ₽",
+        reply_markup=back_keyboard("admin")
     )
     await callback.answer()
 
@@ -82,6 +199,11 @@ async def admin_users(callback: CallbackQuery, session: AsyncSession):
     users = result.scalars().all()
     text = "👥 Пользователи:\n"
     for u in users:
-        text += f"{u.full_name} (ID: {u.telegram_id}) — {u.balance:.2f} ₽, {u.rank}\n"
-    await callback.message.edit_text(text, reply_markup=back_keyboard())
+        text += f"{u.full_name} (ID: {u.telegram_id}) — {u.balance:,.0f} ₽, {u.rank}\n"
+    await callback.message.edit_text(text, reply_markup=back_keyboard("admin"))
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "admin")
+async def back_to_admin(callback: CallbackQuery):
+    await callback.message.edit_text("🔧 Админ-панель", reply_markup=admin_panel_keyboard())
     await callback.answer()
