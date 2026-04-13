@@ -25,6 +25,12 @@ def main_menu():
     )
     builder.row(
         InlineKeyboardButton(text="🎁 Ежедневный бонус", callback_data="daily_bonus"),
+        InlineKeyboardButton(text="👨‍👩‍👧‍👦 Семья", callback_data="family")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🆘 ПОМОГИ СЕМЬЕ 🆘", callback_data="charity")
+    )
+    builder.row(
         InlineKeyboardButton(text="❓ Помощь", callback_data="help")
     )
     return builder.as_markup()
@@ -40,23 +46,39 @@ def password_keyboard():
 def casino_bet_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="100 ₽", callback_data="bet_100"),
-        InlineKeyboardButton(text="500 ₽", callback_data="bet_500"),
-        InlineKeyboardButton(text="1000 ₽", callback_data="bet_1000")
+        InlineKeyboardButton(text="🎲 Кубик", callback_data="casino_dice"),
+        InlineKeyboardButton(text="🎰 Слоты", callback_data="casino_slots")
     )
-    builder.row(
-        InlineKeyboardButton(text="5000 ₽", callback_data="bet_5000"),
-        InlineKeyboardButton(text="Своя сумма", callback_data="bet_custom")
-    )
+    builder.row(InlineKeyboardButton(text="📊 Рейтинг", callback_data="casino_rating"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
 
-def casino_guess_keyboard():
+def dice_bet_keyboard():
     builder = InlineKeyboardBuilder()
-    for i in range(1, 7):
-        builder.button(text=str(i), callback_data=f"guess_{i}")
-    builder.adjust(3)
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_casino"))
+    builder.row(
+        InlineKeyboardButton(text="100 ₽", callback_data="dice_100"),
+        InlineKeyboardButton(text="500 ₽", callback_data="dice_500"),
+        InlineKeyboardButton(text="1000 ₽", callback_data="dice_1000")
+    )
+    builder.row(
+        InlineKeyboardButton(text="5000 ₽", callback_data="dice_5000"),
+        InlineKeyboardButton(text="Своя сумма", callback_data="dice_custom")
+    )
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_menu"))
+    return builder.as_markup()
+
+def slots_bet_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="100 ₽", callback_data="slots_100"),
+        InlineKeyboardButton(text="500 ₽", callback_data="slots_500"),
+        InlineKeyboardButton(text="1000 ₽", callback_data="slots_1000")
+    )
+    builder.row(
+        InlineKeyboardButton(text="5000 ₽", callback_data="slots_5000"),
+        InlineKeyboardButton(text="Своя сумма", callback_data="slots_custom")
+    )
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_menu"))
     return builder.as_markup()
 
 def credit_menu_keyboard():
@@ -95,6 +117,18 @@ def admin_panel_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
     builder.row(InlineKeyboardButton(text="👤 Пользователи", callback_data="admin_users"))
-    builder.row(InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin_settings"))
+    builder.row(InlineKeyboardButton(text="💸 Пополнить баланс", callback_data="admin_add_balance"))
+    builder.row(InlineKeyboardButton(text="🎖 Установить звание", callback_data="admin_set_rank"))
+    builder.row(InlineKeyboardButton(text="✏️ Сменить имя", callback_data="admin_rename"))
+    builder.row(InlineKeyboardButton(text="🔐 Сменить пароль", callback_data="admin_change_password"))
     builder.row(InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"))
+    builder.row(InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin_settings"))
+    return builder.as_markup()
+
+def profile_sections_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🏅 Звания", callback_data="profile_ranks"))
+    builder.row(InlineKeyboardButton(text="🎁 Подарки", callback_data="profile_gifts"))
+    builder.row(InlineKeyboardButton(text="🏅 Медали", callback_data="profile_medals"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
