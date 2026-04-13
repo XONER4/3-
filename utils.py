@@ -3,21 +3,32 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from models import User
 
+RANK_BONUS_MULTIPLIER = {
+    "Рядовой": 1,
+    "Ефрейтор": 2,
+    "Младший сержант": 4,
+    "Сержант": 8,
+    "Старший сержант": 16,
+    "Лейтенант": 32,
+    "Старший лейтенант": 64
+}
+
 async def check_rank_upgrade(user: User, session: AsyncSession):
-    if user.balance > user.max_balance_achieved:
-        user.max_balance_achieved = user.balance
-    
+    """Проверяет и обновляет звание на основе total_earned"""
+    total = user.total_earned
     new_rank = "Рядовой"
-    days_registered = (datetime.now() - user.registered_at).days
-    
-    if user.max_balance_achieved >= 50000:
-        new_rank = "Ефрейтор"
-    if user.max_balance_achieved >= 150000 and days_registered >= 3:
-        new_rank = "Младший сержант"
-    if user.max_balance_achieved >= 150000 and days_registered >= 7 and user.has_taken_credit and user.has_made_deposit:
-        new_rank = "Сержант"
-    if user.max_balance_achieved >= 300000:
+    if total >= 1600000:
+        new_rank = "Старший лейтенант"
+    elif total >= 800000:
+        new_rank = "Лейтенант"
+    elif total >= 400000:
         new_rank = "Старший сержант"
+    elif total >= 200000:
+        new_rank = "Сержант"
+    elif total >= 100000:
+        new_rank = "Младший сержант"
+    elif total >= 50000:
+        new_rank = "Ефрейтор"
     
     if new_rank != user.rank:
         old_rank = user.rank
@@ -40,10 +51,13 @@ def calculate_deposit_payout(amount: float, days: int) -> float:
 
 def get_rank_conditions():
     return (
-        "🎖 Условия получения званий:\n"
+        "🎖 Условия получения званий (по общему доходу):\n"
         "• Рядовой — начальное звание\n"
-        "• Ефрейтор — баланс достигал 50 000 ₽\n"
-        "• Младший сержант — баланс 150 000+ ₽ и 3+ дня в боте\n"
-        "• Сержант — баланс 150 000+ ₽, 7+ дней, брал кредит и вклад\n"
-        "• Старший сержант — баланс 300 000+ ₽"
+        "• Ефрейтор — доход от 50 000 ₽\n"
+        "• Младший сержант — доход от 100 000 ₽\n"
+        "• Сержант — доход от 200 000 ₽\n"
+        "• Старший сержант — доход от 400 000 ₽\n"
+        "• Лейтенант — доход от 800 000 ₽\n"
+        "• Старший лейтенант — доход от 1 600 000 ₽\n"
+        "💰 Ежедневный бонус удваивается с каждым званием!"
     )
