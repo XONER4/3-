@@ -3,13 +3,14 @@ import random
 import asyncio
 from datetime import datetime, timedelta
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, Dice, InlineKeyboardButton
-from aiogram.filters import Command
+from aiogram.types import Message, CallbackQuery
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import BOT_PASSWORD, START_BALANCE, DAILY_BONUS_BASE, CREDIT_PERCENT, CREDIT_MAX_DAYS, ADMIN_ID, TIMEZONE_OFFSET
 from models import User, Transaction, CasinoGame, IQResult
@@ -60,6 +61,9 @@ class AdminState(StatesGroup):
     waiting_for_new_name = State()
     waiting_for_new_password = State()
 
+class CharityState(StatesGroup):
+    waiting_for_amount = State()
+
 # ---------- Вспомогательные функции ----------
 async def get_user(user_id: int, session: AsyncSession) -> User | None:
     result = await session.execute(select(User).where(User.telegram_id == user_id))
@@ -101,7 +105,43 @@ async def notify_user(telegram_id: int, text: str):
     except:
         pass
 
-# ---------- Обработчик команды /start ----------
+# ---------- IQ вопросы ----------
+IQ_QUESTIONS = [
+    {"q": "Сколько будет 2+2?", "o": ["3", "4", "5", "6"], "a": 1},
+    {"q": "Какая планета ближе всего к Солнцу?", "o": ["Венера", "Земля", "Меркурий", "Марс"], "a": 2},
+    {"q": "Сколько дней в високосном году?", "o": ["365", "366", "364", "367"], "a": 1},
+    {"q": "Кто написал 'Войну и мир'?", "o": ["Достоевский", "Толстой", "Пушкин", "Гоголь"], "a": 1},
+    {"q": "Какой газ преобладает в атмосфере Земли?", "o": ["Кислород", "Углекислый", "Азот", "Водород"], "a": 2},
+    {"q": "Сколько континентов на Земле?", "o": ["5", "6", "7", "8"], "a": 2},
+    {"q": "Какая самая длинная река в мире?", "o": ["Нил", "Амазонка", "Янцзы", "Миссисипи"], "a": 1},
+    {"q": "В каком году началась Вторая мировая война?", "o": ["1939", "1941", "1914", "1945"], "a": 0},
+    {"q": "Кто изобрёл телефон?", "o": ["Эдисон", "Белл", "Тесла", "Маркони"], "a": 1},
+    {"q": "Сколько костей в теле взрослого человека?", "o": ["206", "205", "208", "210"], "a": 0},
+    {"q": "Какая столица Франции?", "o": ["Лондон", "Берлин", "Мадрид", "Париж"], "a": 3},
+    {"q": "Сколько цветов в радуге?", "o": ["5", "6", "7", "8"], "a": 2},
+    {"q": "Какой элемент имеет символ 'O'?", "o": ["Золото", "Кислород", "Серебро", "Олово"], "a": 1},
+    {"q": "Кто написал 'Преступление и наказание'?", "o": ["Толстой", "Достоевский", "Чехов", "Горький"], "a": 1},
+    {"q": "Сколько сторон у куба?", "o": ["4", "5", "6", "8"], "a": 2},
+]
+
+SHOP_ITEMS = {
+    "cars": [
+        {"name": "Mercedes-Benz S-Class", "price": 5000000},
+        {"name": "Mercedes-Benz E-Class", "price": 3500000},
+        {"name": "Mercedes-Benz C-Class", "price": 2000000},
+        {"name": "Жигули ВАЗ-2107", "price": 200000},
+        {"name": "Лада Веста", "price": 600000},
+        {"name": "Лада Гранта", "price": 400000},
+    ],
+    "flowers": [
+        {"name": "Роза", "price": 10000},
+        {"name": "Тюльпан", "price": 15000},
+        {"name": "Орхидея", "price": 50000},
+        {"name": "Букет пионов", "price": 100000},
+    ]
+}
+
+# ---------- /start ----------
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
     user_id = message.from_user.id
@@ -142,8 +182,8 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
             reply_markup=main_menu()
         )
 
-# ---------- Авторизация (пароль + имя) ----------
-@router.message(AuthState.waiting_for_password, F.text)
+# ---------- Авторизация ----------
+@router.message(StateFilter(AuthState.waiting_for_password), F.text)
 async def process_password(message: Message, state: FSMContext, session: AsyncSession):
     if message.text == BOT_PASSWORD:
         user = await get_user(message.from_user.id, session)
@@ -153,7 +193,7 @@ async def process_password(message: Message, state: FSMContext, session: AsyncSe
     else:
         await message.answer("❌ Неверный пароль. Попробуйте ещё раз.")
 
-@router.message(AuthState.waiting_for_fullname, F.text)
+@router.message(StateFilter(AuthState.waiting_for_fullname), F.text)
 async def process_fullname(message: Message, state: FSMContext, session: AsyncSession):
     name_parts = message.text.strip().split()
     if len(name_parts) < 2:
@@ -173,7 +213,7 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
     )
     await state.clear()
 
-# ---------- Главное меню (колбэки) ----------
+# ---------- Главное меню ----------
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -187,7 +227,6 @@ async def show_balance(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("Пользователь не найден.", show_alert=True)
         return
     
-    # Последние 5 транзакций
     result = await session.execute(
         select(Transaction).where(Transaction.user_id == user.id).order_by(desc(Transaction.timestamp)).limit(5)
     )
@@ -230,18 +269,14 @@ async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
     )
     await callback.answer()
 
-# ---------- Казино (полностью переделано) ----------
+# ---------- Казино ----------
 @router.callback_query(F.data == "casino_menu")
 async def casino_menu(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "🎰 Выберите игру:",
-        reply_markup=casino_bet_keyboard()
-    )
+    await callback.message.edit_text("🎰 Выберите игру:", reply_markup=casino_bet_keyboard())
     await callback.answer()
 
 @router.callback_query(F.data == "casino_rating")
 async def casino_rating(callback: CallbackQuery, session: AsyncSession):
-    # Рейтинг по сумме выигрышей
     result = await session.execute(
         select(User.full_name, func.sum(CasinoGame.payout).label("total_win"))
         .join(CasinoGame, User.id == CasinoGame.user_id)
@@ -260,14 +295,11 @@ async def casino_rating(callback: CallbackQuery, session: AsyncSession):
 # --- Кубик ---
 @router.callback_query(F.data == "casino_dice")
 async def dice_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        "🎲 Выберите сумму ставки:",
-        reply_markup=dice_bet_keyboard()
-    )
+    await callback.message.edit_text("🎲 Выберите сумму ставки:", reply_markup=dice_bet_keyboard())
     await state.set_state(CasinoState.waiting_for_dice_bet)
     await callback.answer()
 
-@router.callback_query(CasinoState.waiting_for_dice_bet, F.data.startswith("dice_"))
+@router.callback_query(StateFilter(CasinoState.waiting_for_dice_bet), F.data.startswith("dice_"))
 async def dice_bet_set(callback: CallbackQuery, state: FSMContext):
     data = callback.data
     if data == "dice_custom":
@@ -295,13 +327,10 @@ async def dice_roll(callback: CallbackQuery, state: FSMContext, session: AsyncSe
         await callback.answer("Недостаточно средств!", show_alert=True)
         return
     
-    # Отправляем кубик
     dice_msg = await callback.message.answer_dice(emoji="🎲")
-    await asyncio.sleep(3.5)  # ждём анимацию
+    await asyncio.sleep(3.5)
     dice_value = dice_msg.dice.value
     
-    # Правила: угадал число? Можно просто выигрыш если выпало >=4 (или любая логика)
-    # Для простоты: выигрыш x2 если выпало >=4, иначе проигрыш
     won = dice_value >= 4
     if won:
         payout = bet * 2
@@ -336,14 +365,11 @@ async def dice_roll(callback: CallbackQuery, state: FSMContext, session: AsyncSe
 # --- Слоты ---
 @router.callback_query(F.data == "casino_slots")
 async def slots_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        "🎰 Выберите сумму ставки:",
-        reply_markup=slots_bet_keyboard()
-    )
+    await callback.message.edit_text("🎰 Выберите сумму ставки:", reply_markup=slots_bet_keyboard())
     await state.set_state(CasinoState.waiting_for_slots_bet)
     await callback.answer()
 
-@router.callback_query(CasinoState.waiting_for_slots_bet, F.data.startswith("slots_"))
+@router.callback_query(StateFilter(CasinoState.waiting_for_slots_bet), F.data.startswith("slots_"))
 async def slots_bet_set(callback: CallbackQuery, state: FSMContext):
     data = callback.data
     if data == "slots_custom":
@@ -373,12 +399,11 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
     
     slot_msg = await callback.message.answer_dice(emoji="🎰")
     await asyncio.sleep(3.5)
-    slot_value = slot_msg.dice.value  # 1..64
+    slot_value = slot_msg.dice.value
     
-    # Определяем выигрыш
-    if slot_value in [1, 22, 43, 64]:  # джекпот
+    if slot_value in [1, 22, 43, 64]:
         multiplier = 10
-    elif slot_value in [2, 3, 4, 21, 23, 42, 44, 63]:  # средний
+    elif slot_value in [2, 3, 4, 21, 23, 42, 44, 63]:
         multiplier = 3
     else:
         multiplier = 0
@@ -414,7 +439,32 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
     await state.clear()
     await callback.answer()
 
-# ---------- Тест IQ (с отменой) ----------
+@router.message(StateFilter(CasinoState.waiting_for_bet), F.text.isdigit())
+async def custom_bet_input(message: Message, state: FSMContext):
+    bet = int(message.text)
+    if bet <= 0:
+        await message.answer("Ставка должна быть больше 0.")
+        return
+    data = await state.get_data()
+    game = data["game"]
+    await state.update_data(bet=bet)
+    if game == "dice":
+        await message.answer(
+            f"🎲 Ставка: {bet} ₽. Бросайте кубик!",
+            reply_markup=InlineKeyboardBuilder().row(
+                InlineKeyboardButton(text="🎲 Бросить кубик", callback_data="roll_dice")
+            ).row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_menu")).as_markup()
+        )
+    else:
+        await message.answer(
+            f"🎰 Ставка: {bet} ₽. Запускайте слоты!",
+            reply_markup=InlineKeyboardBuilder().row(
+                InlineKeyboardButton(text="🎰 Крутить", callback_data="spin_slots")
+            ).row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_menu")).as_markup()
+        )
+    await state.set_state(None)
+
+# ---------- Тест IQ ----------
 @router.callback_query(F.data == "iq_test")
 async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
@@ -424,7 +474,6 @@ async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: Asy
     
     builder = InlineKeyboardBuilder()
     builder.button(text="🚫 Отменить тест", callback_data="cancel_iq")
-    builder.adjust(1)
     await callback.message.edit_text(
         "🧠 Тест IQ. 15 вопросов. Нажмите 'Отменить тест' чтобы выйти без последствий.",
         reply_markup=builder.as_markup()
@@ -453,7 +502,7 @@ async def cancel_iq(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("❌ Тест IQ отменён.", reply_markup=main_menu())
     await callback.answer()
 
-@router.callback_query(IQState.answering, F.data.startswith("iq_ans_"))
+@router.callback_query(StateFilter(IQState.answering), F.data.startswith("iq_ans_"))
 async def iq_answer(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     data = await state.get_data()
     index = data["iq_index"]
@@ -542,7 +591,7 @@ async def take_credit_start(callback: CallbackQuery, state: FSMContext, session:
     await state.update_data(max_credit=max_credit)
     await callback.answer()
 
-@router.message(CreditState.waiting_for_amount, F.text)
+@router.message(StateFilter(CreditState.waiting_for_amount), F.text)
 async def credit_amount_input(message: Message, state: FSMContext, session: AsyncSession):
     try:
         amount = float(message.text)
@@ -596,7 +645,7 @@ async def deposit_start(callback: CallbackQuery, state: FSMContext, session: Asy
     await state.set_state(DepositState.waiting_for_amount)
     await callback.answer()
 
-@router.message(DepositState.waiting_for_amount, F.text)
+@router.message(StateFilter(DepositState.waiting_for_amount), F.text)
 async def deposit_amount(message: Message, state: FSMContext, session: AsyncSession):
     try:
         amount = float(message.text)
@@ -613,7 +662,7 @@ async def deposit_amount(message: Message, state: FSMContext, session: AsyncSess
     await message.answer("Введите срок вклада (от 1 до 3 дней):")
     await state.set_state(DepositState.waiting_for_days)
 
-@router.message(DepositState.waiting_for_days, F.text)
+@router.message(StateFilter(DepositState.waiting_for_days), F.text)
 async def deposit_days(message: Message, state: FSMContext, session: AsyncSession):
     try:
         days = int(message.text)
@@ -649,7 +698,7 @@ async def deposit_days(message: Message, state: FSMContext, session: AsyncSessio
     )
     await state.clear()
 
-# ---------- Переводы (с уведомлением) ----------
+# ---------- Переводы ----------
 @router.callback_query(F.data == "transfer")
 async def transfer_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
@@ -659,7 +708,7 @@ async def transfer_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(TransferState.waiting_for_recipient_id)
     await callback.answer()
 
-@router.message(TransferState.waiting_for_recipient_id, F.text)
+@router.message(StateFilter(TransferState.waiting_for_recipient_id), F.text)
 async def transfer_recipient(message: Message, state: FSMContext, session: AsyncSession):
     try:
         recip_id = int(message.text)
@@ -676,7 +725,7 @@ async def transfer_recipient(message: Message, state: FSMContext, session: Async
     await message.answer(f"Получатель: {recip.full_name}\nВведите сумму перевода:")
     await state.set_state(TransferState.waiting_for_amount)
 
-@router.message(TransferState.waiting_for_amount, F.text)
+@router.message(StateFilter(TransferState.waiting_for_amount), F.text)
 async def transfer_amount(message: Message, state: FSMContext, session: AsyncSession):
     try:
         amount = float(message.text)
@@ -701,7 +750,7 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     await add_transaction(session, user.id, -amount, "transfer_out", f"Перевод пользователю {recip_name}")
     await add_transaction(session, recip.id, amount, "transfer_in", f"Получено от {user.full_name}")
     
-    # Проверка медали "ДЕНЕЖНАЯ ЩЕДРОСТЬ" для отправителя
+    # Проверка медали "ДЕНЕЖНАЯ ЩЕДРОСТЬ"
     result = await session.execute(
         select(func.sum(Transaction.amount)).where(
             Transaction.user_id == user.id,
@@ -717,7 +766,6 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
         reply_markup=main_menu()
     )
     
-    # Уведомление получателю
     await notify_user(
         recip.telegram_id,
         f"💰 Вам поступил перевод {amount:.2f} ₽ от {user.full_name}\n"
@@ -725,7 +773,7 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     )
     await state.clear()
 
-# ---------- Семья (просмотр личных дел всех) ----------
+# ---------- Семья ----------
 @router.callback_query(F.data == "family")
 async def family_list(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(select(User).where(User.is_authorized == True))
@@ -768,7 +816,7 @@ async def family_profile_view(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard())
     await callback.answer()
 
-# ---------- Личное дело (с подразделами) ----------
+# ---------- Личное дело ----------
 @router.callback_query(F.data == "profile")
 async def profile_main(callback: CallbackQuery, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
@@ -803,7 +851,7 @@ async def profile_medals(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard())
     await callback.answer()
 
-# ---------- Новости (с датой и временем МСК) ----------
+# ---------- Новости ----------
 @router.callback_query(F.data == "news")
 async def news(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -820,10 +868,9 @@ async def news(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard())
     await callback.answer()
 
-# ---------- Благотворительный фонд ----------
+# ---------- Благотворительность ----------
 @router.callback_query(F.data == "charity")
 async def charity_menu(callback: CallbackQuery, session: AsyncSession):
-    # Находим пользователя с минимальным балансом
     result = await session.execute(
         select(User).where(User.is_authorized == True).order_by(User.balance).limit(1)
     )
@@ -847,10 +894,10 @@ async def charity_menu(callback: CallbackQuery, session: AsyncSession):
 @router.callback_query(F.data == "charity_donate")
 async def charity_donate_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Введите сумму пожертвования:")
-    await state.set_state("charity_amount")
+    await state.set_state(CharityState.waiting_for_amount)
     await callback.answer()
 
-@router.message(F.text, state="charity_amount")
+@router.message(StateFilter(CharityState.waiting_for_amount), F.text)
 async def charity_donate_amount(message: Message, state: FSMContext, session: AsyncSession):
     try:
         amount = float(message.text)
@@ -863,7 +910,6 @@ async def charity_donate_amount(message: Message, state: FSMContext, session: As
         await message.answer("Недостаточно средств или некорректная сумма.")
         return
     
-    # Находим беднейшего
     result = await session.execute(
         select(User).where(User.is_authorized == True).order_by(User.balance).limit(1)
     )
@@ -904,6 +950,45 @@ async def charity_rating(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard())
     await callback.answer()
 
+# ---------- Медали ----------
+@router.callback_query(F.data == "medals_info")
+async def medals_info(callback: CallbackQuery):
+    text = (
+        "🏅 Все медали:\n"
+        "• ✅15 из 15 IQ✅ — 15/15 в тесте IQ\n"
+        "• 💚ХОРОШИСТ IQ💚 — 9-14 правильных\n"
+        "• 😊СЛАБАК IQ😊 — 5-8 правильных\n"
+        "• ❌ВСЕ ПЛОХО IQ❌ — меньше 5 правильных\n"
+        "• 😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍 — перевел от 50 000 ₽\n"
+        "• 🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁 — отправил 5+ подарков\n"
+        "• 🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️ — пожертвовал от 20 000 ₽\n"
+        "• 🎰ЛУДОМАН🎰 — 30+ ставок в казино\n"
+        "• 🔴ДОЛЖНИК🔴 — взял более 2 кредитов\n"
+        "• 🤑🤑ВКЛАДЧИК🤑🤑 — открыл более 2 вкладов\n"
+    )
+    await callback.message.edit_text(text, reply_markup=back_keyboard())
+    await callback.answer()
+
+# ---------- Помощь ----------
+@router.callback_query(F.data == "help")
+async def help_cmd(callback: CallbackQuery):
+    text = (
+        "❓ Помощь:\n"
+        "• Баланс — просмотр средств и истории\n"
+        "• Казино — кубик и слоты\n"
+        "• Тест IQ — 15 вопросов, награды\n"
+        "• Кредит — до x10 от баланса, на 3 дня, 10%\n"
+        "• Вклад — 20% в день, от 1 до 3 дней\n"
+        "• Магазин — авто и цветы, можно дарить\n"
+        "• Личное дело — статистика\n"
+        "• Новости — события\n"
+        "• Перевод — переводы\n"
+        "• Семья — профили всех\n"
+        "• Благотворительность — помощь анонимно"
+    )
+    await callback.message.edit_text(text, reply_markup=back_keyboard())
+    await callback.answer()
+
 # ---------- Обработчик неизвестных сообщений ----------
 @router.message()
 async def unknown_message(message: Message):
@@ -911,6 +996,3 @@ async def unknown_message(message: Message):
         "‼️ОСТАНОВИСЬ‼️\n"
         "Все хорошо, только ты делаешь что-то неправильно. Это сообщение отправляется, если кто-то из семьи отправляет параметр в бота (сообщение и т.д.) который ботом не предусмотрен."
     )
-
-# ---------- Админ-панель (расширенная) ----------
-# Полностью реализована в admin.py, здесь оставлены только базовые
