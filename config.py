@@ -1,6 +1,6 @@
 import os
 
-BOT_TOKEN = "ВАШ_ТОКЕН_ЗДЕСЬ"  # замените на актуальный
+BOT_TOKEN = "6080982996:AAFtSreoS1th7l4iFvKnqqelnL5FWz5Vo7A"  # замените на актуальный
 ADMIN_ID = 687370909
 BOT_PASSWORD = "274452"
 START_BALANCE = 15000
