@@ -31,12 +31,13 @@ class User(Base):
     gifts_sent = Column(Integer, default=0)
     purchases = Column(Text, default="[]")
     
-    # Новые поля
-    total_earned = Column(Float, default=0.0)      # общий доход (для званий)
-    total_donated = Column(Float, default=0.0)     # сумма пожертвований в фонд
-    casino_bets_count = Column(Integer, default=0) # количество ставок в казино
-    loans_taken = Column(Integer, default=0)       # количество взятых кредитов
-    deposits_made = Column(Integer, default=0)     # количество открытых вкладов
+    total_earned = Column(Float, default=0.0)
+    total_donated = Column(Float, default=0.0)
+    casino_bets_count = Column(Integer, default=0)
+    loans_taken = Column(Integer, default=0)
+    deposits_made = Column(Integer, default=0)
+    
+    photo_id = Column(String, nullable=True)  # file_id фото профиля
     
     transactions = relationship("Transaction", back_populates="user")
     casino_games = relationship("CasinoGame", back_populates="user")
@@ -60,8 +61,8 @@ class CasinoGame(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     bet_amount = Column(Float)
-    game_type = Column(String)  # 'dice' или 'slots'
-    result = Column(String)     # для слотов: комбинация, для кубика: выпавшее число
+    game_type = Column(String)
+    result = Column(String)
     won = Column(Boolean)
     payout = Column(Float)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
