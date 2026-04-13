@@ -3,7 +3,7 @@ import random
 import asyncio
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -427,8 +427,6 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
     await asyncio.sleep(3.5)
     slot_value = slot_msg.dice.value
     
-    # Определяем комбинацию: три одинаковых? два одинаковых?
-    # 1,22,43,64 - джекпот (все BAR), 2,3,4,21,23,42,44,63 - два одинаковых, остальное проигрыш
     if slot_value in [1, 22, 43, 64]:
         multiplier = 7
         combo = "три одинаковых"
@@ -806,10 +804,12 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     )
     await state.clear()
 
-# ---------- Семья ----------
+# ---------- Семья (исправлено: показывает всех с указанным именем) ----------
 @router.callback_query(F.data == "family")
 async def family_list(callback: CallbackQuery, session: AsyncSession):
-    result = await session.execute(select(User).where(User.is_authorized == True))
+    result = await session.execute(
+        select(User).where(User.full_name != "Не указано")
+    )
     users = result.scalars().all()
     if not users:
         await callback.answer("Нет зарегистрированных пользователей.", show_alert=True)
@@ -920,11 +920,11 @@ async def news(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard())
     await callback.answer()
 
-# ---------- Благотворительность ----------
+# ---------- Благотворительность (исправлено: ищет среди указавших имя) ----------
 @router.callback_query(F.data == "charity")
 async def charity_menu(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
-        select(User).where(User.is_authorized == True).order_by(User.balance).limit(1)
+        select(User).where(User.full_name != "Не указано").order_by(User.balance).limit(1)
     )
     poorest = result.scalar_one_or_none()
     if not poorest:
@@ -963,7 +963,7 @@ async def charity_donate_amount(message: Message, state: FSMContext, session: As
         return
     
     result = await session.execute(
-        select(User).where(User.is_authorized == True).order_by(User.balance).limit(1)
+        select(User).where(User.full_name != "Не указано").order_by(User.balance).limit(1)
     )
     poorest = result.scalar_one_or_none()
     if not poorest:
