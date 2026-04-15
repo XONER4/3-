@@ -150,7 +150,7 @@ async def admin_password_set(message: Message, state: FSMContext):
     await message.answer(f"✅ Пароль бота изменён на {BOT_PASSWORD}.", reply_markup=admin_panel_keyboard())
     await state.clear()
 
-# --- Рассылка ---
+# --- Рассылка (исправлено) ---
 @admin_router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Введите текст для рассылки:")
@@ -174,6 +174,36 @@ async def broadcast_send(message: Message, state: FSMContext, session: AsyncSess
         except:
             pass
     await message.answer(f"✅ Рассылка отправлена {count} пользователям.", reply_markup=admin_panel_keyboard())
+    await state.clear()
+
+# --- Создание кастомной кнопки (упрощённо: вводится текст и callback_data) ---
+@admin_router.callback_query(F.data == "admin_custom_button")
+async def admin_custom_button(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Введите текст для кнопки:")
+    await state.set_state(AdminState.waiting_for_custom_button_text)
+    await callback.answer()
+
+@admin_router.message(StateFilter(AdminState.waiting_for_custom_button_text))
+async def custom_button_text(message: Message, state: FSMContext):
+    await state.update_data(button_text=message.text)
+    await message.answer("Введите callback_data для кнопки (например: my_custom_action):")
+    await state.set_state(AdminState.waiting_for_custom_button_callback)
+
+@admin_router.message(StateFilter(AdminState.waiting_for_custom_button_callback))
+async def custom_button_callback(message: Message, state: FSMContext):
+    data = await state.get_data()
+    text = data["button_text"]
+    cb_data = message.text
+    # Сохраняем в глобальную переменную или файл (упростим: отправим сообщение с кнопкой)
+    from bot import bot
+    builder = InlineKeyboardBuilder()
+    builder.button(text=text, callback_data=cb_data)
+    await bot.send_message(
+        ADMIN_ID,
+        f"Создана кастомная кнопка:\nТекст: {text}\nCallback: {cb_data}",
+        reply_markup=builder.as_markup()
+    )
+    await message.answer("✅ Кастомная кнопка создана (отправлена вам в ЛС).", reply_markup=admin_panel_keyboard())
     await state.clear()
 
 # --- Статистика и пользователи ---
