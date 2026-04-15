@@ -8,3 +8,4 @@ DAILY_BONUS_BASE = 3000
 CREDIT_PERCENT = 10
 CREDIT_MAX_DAYS = 3
 TIMEZONE_OFFSET = 3  # МСК
+MAIN_MENU_TEXT = "👋 Привет, {name}! Сегодня {date}.\nВыберите действие:"
