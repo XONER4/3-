@@ -61,6 +61,8 @@ class AdminState(StatesGroup):
     waiting_for_user_id_rename = State()
     waiting_for_new_name = State()
     waiting_for_new_password = State()
+    waiting_for_custom_button_text = State()
+    waiting_for_custom_button_callback = State()
 
 class CharityState(StatesGroup):
     waiting_for_amount = State()
@@ -96,8 +98,8 @@ async def update_balance(user: User, amount: float, session: AsyncSession, type_
     rank_change = await check_rank_upgrade(user, session)
     if rank_change:
         old, new = rank_change
-        from bot import bot
         try:
+            from bot import bot
             await bot.send_message(
                 user.telegram_id,
                 f"🎉 Поздравляем! Ваше звание повышено с {old} до {new}!\n"
@@ -107,8 +109,8 @@ async def update_balance(user: User, amount: float, session: AsyncSession, type_
             pass
 
 async def notify_user(telegram_id: int, text: str):
-    from bot import bot
     try:
+        from bot import bot
         await bot.send_message(telegram_id, text)
     except:
         pass
@@ -193,16 +195,17 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
             reply_markup=main_menu()
         )
 
-# ---------- Авторизация ----------
+# ---------- Авторизация (исправлено сохранение имени) ----------
 @router.message(StateFilter(AuthState.waiting_for_password), F.text)
 async def process_password(message: Message, state: FSMContext, session: AsyncSession):
     if message.text == BOT_PASSWORD:
-        user = await get_user(message.from_user.id, session)
+        user_id = message.from_user.id
+        user = await get_user(user_id, session)
         if user and user.is_authorized:
             await message.answer(f"👋 Вы уже авторизованы, {user.full_name}!", reply_markup=main_menu())
             await state.clear()
             return
-        await state.update_data(user=user)
+        await state.update_data(user_id=user_id)
         await message.answer("✅ Пароль верный! Введите ваше Имя и Фамилию (например: Иван Иванов):")
         await state.set_state(AuthState.waiting_for_fullname)
     else:
@@ -217,7 +220,12 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
     
     full_name = " ".join(name_parts[:2])
     data = await state.get_data()
-    user = data["user"]
+    user_id = data["user_id"]
+    user = await get_user(user_id, session)
+    if not user:
+        await message.answer("Ошибка: пользователь не найден.")
+        return
+    
     user.full_name = full_name
     user.is_authorized = True
     await session.commit()
@@ -294,7 +302,7 @@ async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
     )
     await callback.answer()
 
-# ---------- Казино ----------
+# ---------- Казино (исправлена навигация) ----------
 @router.callback_query(F.data == "casino_menu")
 async def casino_menu(callback: CallbackQuery):
     await callback.message.edit_text("🎰 Выберите игру:", reply_markup=casino_menu_keyboard())
@@ -381,9 +389,14 @@ async def dice_guess(callback: CallbackQuery, state: FSMContext, session: AsyncS
     session.add(game)
     await session.commit()
     
+    # Клавиатура для продолжения
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🎲 Играть снова", callback_data="casino_dice"))
+    builder.row(InlineKeyboardButton(text="🏠 В меню казино", callback_data="casino_menu"))
+    
     await callback.message.edit_text(
         f"{text}\n💰 Баланс: {format_balance(user.balance)} ₽",
-        reply_markup=back_keyboard("casino_dice")
+        reply_markup=builder.as_markup()
     )
     await state.clear()
     await callback.answer()
@@ -462,9 +475,13 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
     session.add(game)
     await session.commit()
     
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🎰 Играть снова", callback_data="casino_slots"))
+    builder.row(InlineKeyboardButton(text="🏠 В меню казино", callback_data="casino_menu"))
+    
     await callback.message.edit_text(
         f"{text}\n💰 Баланс: {format_balance(user.balance)} ₽",
-        reply_markup=back_keyboard("casino_slots")
+        reply_markup=builder.as_markup()
     )
     await state.clear()
     await callback.answer()
@@ -804,7 +821,7 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     )
     await state.clear()
 
-# ---------- Семья (исправлено: показывает всех с указанным именем) ----------
+# ---------- Семья ----------
 @router.callback_query(F.data == "family")
 async def family_list(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -920,7 +937,7 @@ async def news(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard())
     await callback.answer()
 
-# ---------- Благотворительность (исправлено: ищет среди указавших имя) ----------
+# ---------- Благотворительность ----------
 @router.callback_query(F.data == "charity")
 async def charity_menu(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
