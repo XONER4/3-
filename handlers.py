@@ -317,7 +317,7 @@ async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(
         f"🎁 Вы получили ежедневный бонус {format_balance(bonus)} ₽!\n"
         f"💰 Ваш новый баланс: {format_balance(user.balance)} ₽",
-        reply_markup=back_keyboard()
+        reply_markup=back_keyboard("back_to_main")
     )
     await callback.answer()
 
@@ -504,6 +504,30 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
     await state.clear()
     await callback.answer()
 
+@router.message(StateFilter(CasinoState.waiting_for_bet), F.text.isdigit())
+async def custom_bet_input(message: Message, state: FSMContext):
+    bet = int(message.text)
+    if bet <= 0:
+        await message.answer("Ставка должна быть больше 0.")
+        return
+    data = await state.get_data()
+    game = data["game"]
+    await state.update_data(bet=bet)
+    if game == "dice":
+        await message.answer(
+            f"🎲 Ставка: {format_balance(bet)} ₽. Загадайте число от 1 до 6:",
+            reply_markup=dice_guess_keyboard()
+        )
+        await state.set_state(CasinoState.waiting_for_dice_guess)
+    else:
+        await message.answer(
+            f"🎰 Ставка: {format_balance(bet)} ₽. Запускайте слоты!",
+            reply_markup=InlineKeyboardBuilder().row(
+                InlineKeyboardButton(text="🎰 Крутить", callback_data="spin_slots")
+            ).row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_slots")).as_markup()
+        )
+        await state.set_state(None)
+
 # ---------- Тест IQ ----------
 @router.callback_query(F.data == "iq_test")
 async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
@@ -606,7 +630,7 @@ async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: li
     text += f"Изменение баланса: {format_balance(bonus)} ₽\n"
     text += f"💰 Текущий баланс: {format_balance(user.balance)} ₽"
     
-    await callback.message.edit_text(text, reply_markup=back_keyboard())
+    await callback.message.edit_text(text, reply_markup=back_keyboard("back_to_main"))
     await state.clear()
 
 # ---------- Кредит ----------
@@ -815,7 +839,7 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     )
     await state.clear()
 
-# ---------- Магазин (полная реализация) ----------
+# ---------- Магазин ----------
 @router.callback_query(F.data == "shop_menu")
 async def shop_menu(callback: CallbackQuery):
     await callback.message.edit_text("🛍 Магазин", reply_markup=shop_menu_keyboard())
@@ -917,7 +941,7 @@ async def shop_gift(message: Message, state: FSMContext, session: AsyncSession):
     )
     await state.clear()
 
-# ---------- Семья (исправлено: подразделы) ----------
+# ---------- Семья ----------
 @router.callback_query(F.data == "family")
 async def family_list(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -1067,10 +1091,10 @@ async def news(callback: CallbackQuery, session: AsyncSession):
         emoji = "🟢" if t.amount > 0 else "🔴"
         text += f"{emoji} {local_time.strftime('%d.%m.%Y %H:%M')} — {user_name}: {t.description or t.type} ({format_balance(t.amount)} ₽)\n"
     
-    await callback.message.edit_text(text, reply_markup=back_keyboard())
+    await callback.message.edit_text(text, reply_markup=back_keyboard("back_to_main"))
     await callback.answer()
 
-# ---------- Благотворительность (анонимность) ----------
+# ---------- Благотворительность ----------
 @router.callback_query(F.data == "charity")
 async def charity_menu(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -1175,7 +1199,7 @@ async def medals_info(callback: CallbackQuery):
         "• 🔴ДОЛЖНИК🔴 — взял более 2 кредитов\n"
         "• 🤑🤑ВКЛАДЧИК🤑🤑 — открыл более 2 вкладов\n"
     )
-    await callback.message.edit_text(text, reply_markup=back_keyboard())
+    await callback.message.edit_text(text, reply_markup=back_keyboard("back_to_main"))
     await callback.answer()
 
 # ---------- Помощь ----------
@@ -1195,8 +1219,13 @@ async def help_cmd(callback: CallbackQuery):
         "• Семья — профили всех\n"
         "• Благотворительность — помощь анонимно"
     )
-    await callback.message.edit_text(text, reply_markup=back_keyboard())
+    await callback.message.edit_text(text, reply_markup=back_keyboard("back_to_main"))
     await callback.answer()
+
+# ---------- Обработчик неизвестных callback ----------
+@router.callback_query()
+async def unknown_callback(callback: CallbackQuery):
+    await callback.answer("Действие не распознано", show_alert=True)
 
 # ---------- Обработчик неизвестных сообщений ----------
 @router.message()
