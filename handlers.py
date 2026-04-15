@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import BOT_PASSWORD, START_BALANCE, DAILY_BONUS_BASE, CREDIT_PERCENT, CREDIT_MAX_DAYS, ADMIN_ID, TIMEZONE_OFFSET
+from config import BOT_PASSWORD, START_BALANCE, DAILY_BONUS_BASE, CREDIT_PERCENT, CREDIT_MAX_DAYS, ADMIN_ID, TIMEZONE_OFFSET, MAIN_MENU_TEXT
 from models import User, Transaction, CasinoGame, IQResult
 from keyboards import *
 from utils import check_rank_upgrade, add_medal, calculate_deposit_payout, get_rank_conditions, RANK_BONUS_MULTIPLIER
@@ -63,12 +63,18 @@ class AdminState(StatesGroup):
     waiting_for_new_password = State()
     waiting_for_custom_button_text = State()
     waiting_for_custom_button_callback = State()
+    waiting_for_medal_user_name = State()
+    waiting_for_medal_name = State()
+    waiting_for_main_menu_text = State()
 
 class CharityState(StatesGroup):
     waiting_for_amount = State()
 
 class PhotoUploadState(StatesGroup):
     waiting_for_photo = State()
+
+# ---------- Глобальный словарь для кастомных кнопок ----------
+custom_buttons = {}
 
 # ---------- Вспомогательные функции ----------
 async def get_user(user_id: int, session: AsyncSession) -> User | None:
@@ -118,6 +124,9 @@ async def notify_user(telegram_id: int, text: str):
 def format_balance(amount: float) -> str:
     return f"{amount:,.0f}".replace(",", ".")
 
+def get_current_date() -> str:
+    return datetime.now().strftime("%d.%m.%Y")
+
 # ---------- IQ вопросы ----------
 IQ_QUESTIONS = [
     {"q": "Сколько будет 2+2?", "o": ["3", "4", "5", "6"], "a": 1},
@@ -153,6 +162,12 @@ SHOP_ITEMS = {
         {"name": "Букет пионов", "price": 100000},
     ]
 }
+
+ALL_MEDALS = [
+    "✅15 из 15 IQ✅", "💚ХОРОШИСТ IQ💚", "😊СЛАБАК IQ😊", "❌ВСЕ ПЛОХО IQ❌",
+    "😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍", "🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁",
+    "🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️", "🎰ЛУДОМАН🎰", "🔴ДОЛЖНИК🔴", "🤑🤑ВКЛАДЧИК🤑🤑"
+]
 
 # ---------- /start ----------
 @router.message(Command("start"))
@@ -191,11 +206,12 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession):
         await state.set_state(AuthState.waiting_for_password)
     else:
         await message.answer(
-            f"👋 С возвращением, {user.full_name}! Вы в главном меню.",
+            f"👋 С возвращением, {user.full_name}! Вы в главном меню.\n"
+            f"📅 Сегодня {get_current_date()}",
             reply_markup=main_menu()
         )
 
-# ---------- Авторизация (исправлено сохранение имени) ----------
+# ---------- Авторизация ----------
 @router.message(StateFilter(AuthState.waiting_for_password), F.text)
 async def process_password(message: Message, state: FSMContext, session: AsyncSession):
     if message.text == BOT_PASSWORD:
@@ -231,7 +247,8 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
     await session.commit()
     
     await message.answer(
-        f"👋 Добро пожаловать, {full_name}! Вы в главном меню.",
+        f"👋 Добро пожаловать, {full_name}! Вы в главном меню.\n"
+        f"📅 Сегодня {get_current_date()}",
         reply_markup=main_menu()
     )
     await state.clear()
@@ -240,7 +257,9 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text("🏠 Главное меню", reply_markup=main_menu())
+    user = await get_user(callback.from_user.id, next(get_db()))
+    text = MAIN_MENU_TEXT.replace("{name}", user.full_name).replace("{date}", get_current_date())
+    await callback.message.edit_text(text, reply_markup=main_menu())
     await callback.answer()
 
 @router.callback_query(F.data == "balance")
@@ -302,7 +321,7 @@ async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
     )
     await callback.answer()
 
-# ---------- Казино (исправлена навигация) ----------
+# ---------- Казино ----------
 @router.callback_query(F.data == "casino_menu")
 async def casino_menu(callback: CallbackQuery):
     await callback.message.edit_text("🎰 Выберите игру:", reply_markup=casino_menu_keyboard())
@@ -389,7 +408,6 @@ async def dice_guess(callback: CallbackQuery, state: FSMContext, session: AsyncS
     session.add(game)
     await session.commit()
     
-    # Клавиатура для продолжения
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🎲 Играть снова", callback_data="casino_dice"))
     builder.row(InlineKeyboardButton(text="🏠 В меню казино", callback_data="casino_menu"))
@@ -485,30 +503,6 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
     )
     await state.clear()
     await callback.answer()
-
-@router.message(StateFilter(CasinoState.waiting_for_bet), F.text.isdigit())
-async def custom_bet_input(message: Message, state: FSMContext):
-    bet = int(message.text)
-    if bet <= 0:
-        await message.answer("Ставка должна быть больше 0.")
-        return
-    data = await state.get_data()
-    game = data["game"]
-    await state.update_data(bet=bet)
-    if game == "dice":
-        await message.answer(
-            f"🎲 Ставка: {format_balance(bet)} ₽. Загадайте число от 1 до 6:",
-            reply_markup=dice_guess_keyboard()
-        )
-        await state.set_state(CasinoState.waiting_for_dice_guess)
-    else:
-        await message.answer(
-            f"🎰 Ставка: {format_balance(bet)} ₽. Запускайте слоты!",
-            reply_markup=InlineKeyboardBuilder().row(
-                InlineKeyboardButton(text="🎰 Крутить", callback_data="spin_slots")
-            ).row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_slots")).as_markup()
-        )
-        await state.set_state(None)
 
 # ---------- Тест IQ ----------
 @router.callback_query(F.data == "iq_test")
@@ -750,7 +744,7 @@ async def deposit_days(message: Message, state: FSMContext, session: AsyncSessio
     )
     await state.clear()
 
-# ---------- Переводы (по имени) ----------
+# ---------- Переводы ----------
 @router.callback_query(F.data == "transfer")
 async def transfer_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
@@ -821,7 +815,109 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     )
     await state.clear()
 
-# ---------- Семья ----------
+# ---------- Магазин (полная реализация) ----------
+@router.callback_query(F.data == "shop_menu")
+async def shop_menu(callback: CallbackQuery):
+    await callback.message.edit_text("🛍 Магазин", reply_markup=shop_menu_keyboard())
+    await callback.answer()
+
+@router.callback_query(F.data.in_(["shop_cars", "shop_flowers"]))
+async def shop_category(callback: CallbackQuery, state: FSMContext):
+    cat = "cars" if callback.data == "shop_cars" else "flowers"
+    items = SHOP_ITEMS[cat]
+    builder = InlineKeyboardBuilder()
+    for i, item in enumerate(items):
+        builder.button(text=f"{item['name']} — {format_balance(item['price'])} ₽", callback_data=f"buy_{cat}_{i}")
+    builder.adjust(1)
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="shop_menu"))
+    await callback.message.edit_text(f"Выберите товар:", reply_markup=builder.as_markup())
+    await state.set_state(ShopState.choosing_item)
+    await state.update_data(category=cat)
+    await callback.answer()
+
+@router.callback_query(StateFilter(ShopState.choosing_item), F.data.startswith("buy_"))
+async def shop_choose_action(callback: CallbackQuery, state: FSMContext):
+    _, cat, idx = callback.data.split("_")
+    idx = int(idx)
+    item = SHOP_ITEMS[cat][idx]
+    await state.update_data(item=item)
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Купить себе", callback_data="action_self")
+    builder.button(text="Подарить", callback_data="action_gift")
+    builder.button(text="🔙 Назад", callback_data=f"shop_{cat}")
+    await callback.message.edit_text(
+        f"Товар: {item['name']}\nЦена: {format_balance(item['price'])} ₽\nВыберите действие:",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(ShopState.choosing_action)
+    await callback.answer()
+
+@router.callback_query(StateFilter(ShopState.choosing_action), F.data.startswith("action_"))
+async def shop_action(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    action = callback.data.split("_")[1]
+    data = await state.get_data()
+    item = data["item"]
+    user = await get_user(callback.from_user.id, session)
+    
+    if user.balance < item["price"]:
+        await callback.answer("Недостаточно средств!", show_alert=True)
+        return
+    
+    if action == "self":
+        user.balance -= item["price"]
+        purchases = json.loads(user.purchases) if user.purchases else []
+        purchases.append(item["name"])
+        user.purchases = json.dumps(purchases)
+        await session.commit()
+        await add_transaction(session, user.id, -item["price"], "shop_purchase", f"Покупка {item['name']}")
+        await callback.message.edit_text(
+            f"✅ Вы купили {item['name']} за {format_balance(item['price'])} ₽!",
+            reply_markup=back_keyboard("shop_menu")
+        )
+        await state.clear()
+    else:
+        await callback.message.edit_text("Введите Имя и Фамилию получателя:")
+        await state.set_state(ShopState.choosing_recipient_name)
+    await callback.answer()
+
+@router.message(StateFilter(ShopState.choosing_recipient_name), F.text)
+async def shop_gift(message: Message, state: FSMContext, session: AsyncSession):
+    recip_name = message.text.strip()
+    recip = await get_user_by_name(recip_name, session)
+    if not recip:
+        await message.answer("Пользователь с таким именем не найден.")
+        return
+    
+    data = await state.get_data()
+    item = data["item"]
+    user = await get_user(message.from_user.id, session)
+    
+    user.balance -= item["price"]
+    user.gifts_sent += 1
+    purchases = json.loads(recip.purchases) if recip.purchases else []
+    purchases.append(f"{item['name']} (подарок от {user.full_name})")
+    recip.purchases = json.dumps(purchases)
+    
+    if user.gifts_sent >= 5:
+        added = await add_medal(user, "🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁", session)
+        if added:
+            await notify_user(user.telegram_id, "🎉 Вы получили медаль '🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁' за 5 подарков!")
+    
+    await session.commit()
+    await add_transaction(session, user.id, -item["price"], "gift_sent", f"Подарок {item['name']} для {recip.full_name}")
+    
+    await message.answer(
+        f"✅ Вы подарили {item['name']} пользователю {recip.full_name}!",
+        reply_markup=main_menu()
+    )
+    await notify_user(
+        recip.telegram_id,
+        f"🎁 {user.full_name} подарил вам {item['name']}!"
+    )
+    await state.clear()
+
+# ---------- Семья (исправлено: подразделы) ----------
 @router.callback_query(F.data == "family")
 async def family_list(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -845,28 +941,62 @@ async def family_list(callback: CallbackQuery, session: AsyncSession):
     await callback.answer()
 
 @router.callback_query(F.data.startswith("family_profile_"))
-async def family_profile_view(callback: CallbackQuery, session: AsyncSession):
+async def family_profile_main(callback: CallbackQuery, session: AsyncSession):
     user_id = int(callback.data.split("_")[2])
     user = await get_user(user_id, session)
     if not user:
         await callback.answer("Пользователь не найден.", show_alert=True)
         return
     
-    medals = json.loads(user.medals) if user.medals else []
     text = (
         f"📋 Личное дело {user.full_name}\n"
         f"🆔 ID: {user.telegram_id}\n"
-        f"💰 Баланс: {format_balance(user.balance)} ₽\n"
-        f"📈 Общий доход: {format_balance(user.total_earned)} ₽\n"
-        f"🎖 Звание: {user.rank}\n"
-        f"🏅 Медали: {', '.join(medals) if medals else 'нет'}\n"
         f"📅 В боте с: {user.registered_at.strftime('%d.%m.%Y')}"
     )
     
-    if user.photo_id:
-        await callback.message.answer_photo(user.photo_id, caption=text, reply_markup=back_keyboard("family"))
-    else:
-        await callback.message.edit_text(text, reply_markup=back_keyboard("family"))
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 Баланс", callback_data=f"fam_balance_{user_id}")
+    builder.button(text="🏅 Звания", callback_data=f"fam_rank_{user_id}")
+    builder.button(text="🎁 Подарки", callback_data=f"fam_gifts_{user_id}")
+    builder.button(text="🏅 Медали", callback_data=f"fam_medals_{user_id}")
+    builder.adjust(2)
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="family"))
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fam_balance_"))
+async def fam_balance(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    text = f"💰 Баланс {user.full_name}: {format_balance(user.balance)} ₽\n📈 Доход: {format_balance(user.total_earned)} ₽"
+    await callback.message.edit_text(text, reply_markup=back_keyboard(f"family_profile_{user_id}"))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fam_rank_"))
+async def fam_rank(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    text = f"🎖 Звание {user.full_name}: {user.rank}\n{get_rank_conditions()}"
+    await callback.message.edit_text(text, reply_markup=back_keyboard(f"family_profile_{user_id}"))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fam_gifts_"))
+async def fam_gifts(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    purchases = json.loads(user.purchases) if user.purchases else []
+    text = f"🎁 Подарки/покупки {user.full_name}:\n" + "\n".join(purchases) if purchases else "Нет подарков."
+    await callback.message.edit_text(text, reply_markup=back_keyboard(f"family_profile_{user_id}"))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fam_medals_"))
+async def fam_medals(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    medals = json.loads(user.medals) if user.medals else []
+    text = f"🏅 Медали {user.full_name}:\n" + "\n".join(medals) if medals else "Нет медалей."
+    await callback.message.edit_text(text, reply_markup=back_keyboard(f"family_profile_{user_id}"))
     await callback.answer()
 
 # ---------- Личное дело ----------
@@ -930,14 +1060,17 @@ async def news(callback: CallbackQuery, session: AsyncSession):
     text = "📰 Последние события (МСК):\n"
     for t in trans:
         local_time = t.timestamp + timedelta(hours=TIMEZONE_OFFSET)
-        user_name = t.user.full_name if t.user else "Неизвестный"
+        if t.type == "charity":
+            user_name = "Аноним"
+        else:
+            user_name = t.user.full_name if t.user else "Неизвестный"
         emoji = "🟢" if t.amount > 0 else "🔴"
         text += f"{emoji} {local_time.strftime('%d.%m.%Y %H:%M')} — {user_name}: {t.description or t.type} ({format_balance(t.amount)} ₽)\n"
     
     await callback.message.edit_text(text, reply_markup=back_keyboard())
     await callback.answer()
 
-# ---------- Благотворительность ----------
+# ---------- Благотворительность (анонимность) ----------
 @router.callback_query(F.data == "charity")
 async def charity_menu(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -992,8 +1125,8 @@ async def charity_donate_amount(message: Message, state: FSMContext, session: As
     poorest.total_earned += amount
     user.total_donated += amount
     await session.commit()
-    await add_transaction(session, user.id, -amount, "charity", "Пожертвование в фонд")
-    await add_transaction(session, poorest.id, amount, "charity_received", "Получена помощь из фонда")
+    await add_transaction(session, user.id, -amount, "charity", "Анонимное пожертвование в фонд")
+    await add_transaction(session, poorest.id, amount, "charity_received", "Получена анонимная помощь из фонда")
     
     if user.total_donated >= 20000:
         added = await add_medal(user, "🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️", session)
@@ -1003,6 +1136,11 @@ async def charity_donate_amount(message: Message, state: FSMContext, session: As
     await message.answer(
         f"✅ Вы анонимно пожертвовали {format_balance(amount)} ₽ нуждающемуся члену семьи.",
         reply_markup=main_menu()
+    )
+    await notify_user(
+        poorest.telegram_id,
+        f"💰 Вам поступило анонимное пожертвование {format_balance(amount)} ₽ из фонда!\n"
+        f"Ваш текущий баланс: {format_balance(poorest.balance)} ₽"
     )
     await state.clear()
 
