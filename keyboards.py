@@ -130,6 +130,7 @@ def admin_panel_keyboard():
     builder.row(InlineKeyboardButton(text="✏️ Сменить имя", callback_data="admin_rename"))
     builder.row(InlineKeyboardButton(text="🔐 Сменить пароль", callback_data="admin_change_password"))
     builder.row(InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"))
+    builder.row(InlineKeyboardButton(text="🆕 Кастомная кнопка", callback_data="admin_custom_button"))
     builder.row(InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin_settings"))
     return builder.as_markup()
 
