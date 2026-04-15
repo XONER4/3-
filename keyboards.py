@@ -112,6 +112,11 @@ def back_keyboard(destination: str = "back_to_main"):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data=destination))
     return builder.as_markup()
+    def back_to_admin_keyboard():
+    return back_keyboard("admin")
+
+def back_to_family_profile_keyboard(user_id: int):
+    return back_keyboard(f"family_profile_{user_id}")
 
 def admin_panel_keyboard():
     builder = InlineKeyboardBuilder()
