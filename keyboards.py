@@ -113,25 +113,19 @@ def back_keyboard(destination: str = "back_to_main"):
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data=destination))
     return builder.as_markup()
 
-def confirm_keyboard(action: str):
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_{action}"),
-        InlineKeyboardButton(text="❌ Нет", callback_data="cancel")
-    )
-    return builder.as_markup()
-
 def admin_panel_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
     builder.row(InlineKeyboardButton(text="👤 Пользователи", callback_data="admin_users"))
     builder.row(InlineKeyboardButton(text="💸 Пополнить баланс", callback_data="admin_add_balance"))
     builder.row(InlineKeyboardButton(text="🎖 Установить звание", callback_data="admin_set_rank"))
+    builder.row(InlineKeyboardButton(text="🏅 Выдать медаль", callback_data="admin_give_medal"))
     builder.row(InlineKeyboardButton(text="✏️ Сменить имя", callback_data="admin_rename"))
     builder.row(InlineKeyboardButton(text="🔐 Сменить пароль", callback_data="admin_change_password"))
     builder.row(InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast"))
     builder.row(InlineKeyboardButton(text="🆕 Кастомная кнопка", callback_data="admin_custom_button"))
-    builder.row(InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin_settings"))
+    builder.row(InlineKeyboardButton(text="📝 Изменить текст меню", callback_data="admin_change_main_text"))
+    builder.row(InlineKeyboardButton(text="🏠 Войти в общее меню", callback_data="admin_enter_main"))
     return builder.as_markup()
 
 def profile_sections_keyboard():
