@@ -17,7 +17,8 @@ from models import User, Transaction, CasinoGame, IQResult
 from keyboards import *
 from utils import (
     check_rank_upgrade, add_medal, calculate_deposit_payout,
-    calculate_credit_debt, get_rank_conditions, RANK_BONUS_MULTIPLIER, RANK_REWARDS
+    calculate_credit_debt, get_rank_conditions, RANK_BONUS_MULTIPLIER,
+    notify_user, RANK_REWARDS
 )
 
 router = Router()
@@ -123,13 +124,6 @@ async def update_balance(user: User, amount: float, session: AsyncSession, type_
             await bot.send_message(user.telegram_id, msg)
         except:
             pass
-
-async def notify_user(telegram_id: int, text: str):
-    try:
-        from bot import bot
-        await bot.send_message(telegram_id, text)
-    except:
-        pass
 
 def format_balance(amount: float) -> str:
     return f"{amount:,.0f}".replace(",", ".")
@@ -330,7 +324,8 @@ async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
         reply_markup=back_keyboard("back_to_main")
     )
     await callback.answer()
-    # ---------- Казино ----------
+
+# ---------- Казино ----------
 @router.callback_query(F.data == "casino_menu")
 async def casino_menu(callback: CallbackQuery):
     await callback.message.edit_text("🎰 Выберите игру:", reply_markup=casino_menu_keyboard())
@@ -670,7 +665,6 @@ async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: li
 async def credit_menu(callback: CallbackQuery, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
     if user.credit_amount > 0:
-        # Показываем информацию о текущем кредите
         now = datetime.now()
         hours_passed = (now - user.credit_start_date).total_seconds() / 3600
         current_debt = calculate_credit_debt(user.credit_original, hours_passed)
@@ -753,14 +747,14 @@ async def credit_term_chosen(callback: CallbackQuery, state: FSMContext, session
     due_date = now + timedelta(hours=term)
     
     user.credit_original = amount
-    user.credit_amount = amount  # начальный долг равен сумме
+    user.credit_amount = amount
     user.credit_term_hours = term
     user.credit_start_date = now
     user.credit_due_date = due_date
     user.has_taken_credit = True
     user.loans_taken += 1
     user.balance += amount
-    user.total_earned += amount  # кредит считается доходом?
+    user.total_earned += amount
     await session.commit()
     await add_transaction(session, user.id, amount, "credit", f"Взят кредит {format_balance(amount)} ₽ на {term} ч")
     
@@ -779,7 +773,8 @@ async def credit_term_chosen(callback: CallbackQuery, state: FSMContext, session
     )
     await state.clear()
     await callback.answer()
-    # ---------- Погашение кредита ----------
+
+# ---------- Погашение кредита ----------
 @router.callback_query(F.data == "repay_credit")
 async def repay_credit_start(callback: CallbackQuery, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
@@ -1139,7 +1134,8 @@ async def shop_gift(message: Message, state: FSMContext, session: AsyncSession):
         reply_markup=main_menu()
     )
     await state.clear()
-    # ---------- Семья ----------
+
+# ---------- Семья ----------
 @router.callback_query(F.data == "family")
 async def family_list(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -1295,7 +1291,6 @@ async def news(callback: CallbackQuery, session: AsyncSession):
         # Анонимизация благотворительности
         if t.type in ("charity", "charity_received"):
             user_name = "Аноним"
-            # В описании тоже скрываем имена
             desc = "Анонимное пожертвование"
         else:
             user_name = t.user.full_name if t.user else "Неизвестный"
