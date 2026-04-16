@@ -10,9 +10,11 @@ from config import ADMIN_ID, BOT_PASSWORD, MAIN_MENU_TEXT, TIMEZONE_OFFSET
 from models import User
 from keyboards import admin_panel_keyboard, back_keyboard
 from handlers import (
-    AdminState, BroadcastState, get_user, get_user_by_name, notify_user,
-    custom_buttons, ALL_MEDALS, add_medal, back_to_main
+    AdminState, BroadcastState, get_user, get_user_by_name,
+    custom_buttons, ALL_MEDALS, back_to_main
 )
+from utils import notify_user, add_medal  # импортируем из utils
+
 import asyncio
 from datetime import datetime, timedelta
 
