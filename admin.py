@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import ADMIN_ID, BOT_PASSWORD, MAIN_MENU_TEXT
+from config import ADMIN_ID, BOT_PASSWORD, MAIN_MENU_TEXT, TIMEZONE_OFFSET
 from models import User
 from keyboards import admin_panel_keyboard, back_keyboard
 from handlers import (
@@ -14,6 +14,7 @@ from handlers import (
     custom_buttons, ALL_MEDALS, add_medal, back_to_main
 )
 import asyncio
+from datetime import datetime, timedelta
 
 admin_router = Router()
 
@@ -47,7 +48,6 @@ async def admin_add_balance(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminState.waiting_for_user_id_balance)
     await callback.answer()
 
-# Кнопка "Назад" из состояния ожидания имени для пополнения
 @admin_router.callback_query(StateFilter(AdminState.waiting_for_user_id_balance), F.data == "admin")
 async def back_from_balance_name(callback: CallbackQuery, state: FSMContext):
     await back_to_admin_panel(callback, state)
@@ -66,7 +66,6 @@ async def admin_balance_user_name(message: Message, state: FSMContext, session: 
     )
     await state.set_state(AdminState.waiting_for_amount_balance)
 
-# Кнопка "Назад" из состояния ожидания суммы пополнения
 @admin_router.callback_query(StateFilter(AdminState.waiting_for_amount_balance), F.data == "admin")
 async def back_from_balance_amount(callback: CallbackQuery, state: FSMContext):
     await back_to_admin_panel(callback, state)
@@ -150,13 +149,14 @@ async def admin_rank_set(message: Message, state: FSMContext, session: AsyncSess
         await state.clear()
         return
     
+    old_rank = user.rank
     user.rank = new_rank
     await session.commit()
     await message.answer(
-        f"✅ Звание пользователя {user.full_name} изменено на {new_rank}.",
+        f"✅ Звание пользователя {user.full_name} изменено с {old_rank} на {new_rank}.",
         reply_markup=admin_panel_keyboard()
     )
-    await notify_user(target_id, f"🎖 Администратор присвоил вам звание {new_rank}!")
+    await notify_user(target_id, f"🎖 Администратор изменил ваше звание с {old_rank} на {new_rank}!")
     await state.clear()
 
 # --- Выдача медали (по имени) ---
@@ -209,12 +209,15 @@ async def admin_medal_set(message: Message, state: FSMContext, session: AsyncSes
         await state.clear()
         return
     
-    await add_medal(user, medal, session)
-    await message.answer(
-        f"✅ Медаль '{medal}' выдана пользователю {user.full_name}.",
-        reply_markup=admin_panel_keyboard()
-    )
-    await notify_user(target_id, f"🎉 Администратор выдал вам медаль '{medal}'!")
+    added = await add_medal(user, medal, session)
+    if added:
+        await message.answer(
+            f"✅ Медаль '{medal}' выдана пользователю {user.full_name}.",
+            reply_markup=admin_panel_keyboard()
+        )
+        await notify_user(target_id, f"🎉 Администратор выдал вам медаль '{medal}'!")
+    else:
+        await message.answer(f"У пользователя уже есть медаль '{medal}'.")
     await state.clear()
 
 # --- Смена имени (по имени) ---
@@ -260,13 +263,14 @@ async def admin_rename_set(message: Message, state: FSMContext, session: AsyncSe
         await state.clear()
         return
     old_name = user.full_name
-    user.full_name = message.text.strip()
+    new_name = message.text.strip()
+    user.full_name = new_name
     await session.commit()
     await message.answer(
-        f"✅ Имя пользователя изменено с {old_name} на {user.full_name}.",
+        f"✅ Имя пользователя изменено с {old_name} на {new_name}.",
         reply_markup=admin_panel_keyboard()
     )
-    await notify_user(target_id, f"✏️ Администратор изменил ваше имя с {old_name} на {user.full_name}.")
+    await notify_user(target_id, f"✏️ Администратор изменил ваше имя с {old_name} на {new_name}.")
     await state.clear()
 
 # --- Смена пароля ---
@@ -291,7 +295,6 @@ async def admin_password_set(message: Message, state: FSMContext):
     BOT_PASSWORD = new_password
     import config
     config.BOT_PASSWORD = new_password
-    # Внимание: пароль изменится только в памяти, после перезапуска бота вернётся значение из config.py.
     await message.answer(
         f"✅ Пароль бота изменён на {new_password}. (Внимание: изменение не сохраняется после перезапуска)",
         reply_markup=admin_panel_keyboard()
@@ -415,7 +418,6 @@ async def set_main_menu_text(message: Message, state: FSMContext):
     MAIN_MENU_TEXT = new_text
     import config
     config.MAIN_MENU_TEXT = new_text
-    # Внимание: изменение только в памяти, после перезапуска вернётся значение из config.py.
     await message.answer(
         "✅ Текст главного меню обновлён. (Внимание: изменение не сохраняется после перезапуска)",
         reply_markup=admin_panel_keyboard()
@@ -425,7 +427,6 @@ async def set_main_menu_text(message: Message, state: FSMContext):
 # --- Войти в общее меню ---
 @admin_router.callback_query(F.data == "admin_enter_main")
 async def admin_enter_main(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
-    # Используем исправленную функцию back_to_main из handlers
     await back_to_main(callback, state, session)
     await callback.answer()
 
@@ -437,8 +438,14 @@ async def admin_stats(callback: CallbackQuery, session: AsyncSession):
         return
     total_users = await session.scalar(select(func.count()).select_from(User))
     total_balance = await session.scalar(select(func.sum(User.balance)))
+    total_credits = await session.scalar(select(func.sum(User.credit_amount)))
+    total_deposits = await session.scalar(select(func.sum(User.deposit_amount)))
     await callback.message.edit_text(
-        f"📊 Статистика:\n👥 Пользователей: {total_users}\n💰 Общий баланс: {total_balance:,.0f} ₽",
+        f"📊 Статистика:\n"
+        f"👥 Пользователей: {total_users}\n"
+        f"💰 Общий баланс: {total_balance:,.0f} ₽\n"
+        f"💵 Сумма кредитов: {total_credits or 0:,.0f} ₽\n"
+        f"🏦 Сумма вкладов: {total_deposits or 0:,.0f} ₽",
         reply_markup=back_keyboard("admin")
     )
     await callback.answer()
@@ -452,6 +459,12 @@ async def admin_users(callback: CallbackQuery, session: AsyncSession):
     users = result.scalars().all()
     text = "👥 Пользователи:\n"
     for u in users:
-        text += f"{u.full_name} (ID: {u.telegram_id}) — {u.balance:,.0f} ₽, {u.rank}\n"
+        credit_info = f"Кредит: {u.credit_amount:,.0f} ₽" if u.credit_amount > 0 else ""
+        deposit_info = f"Вклад: {u.deposit_amount:,.0f} ₽" if u.deposit_amount > 0 else ""
+        extra = " | ".join(filter(None, [credit_info, deposit_info]))
+        text += f"{u.full_name} (ID: {u.telegram_id}) — {u.balance:,.0f} ₽, {u.rank}"
+        if extra:
+            text += f" | {extra}"
+        text += "\n"
     await callback.message.edit_text(text, reply_markup=back_keyboard("admin"))
     await callback.answer()
