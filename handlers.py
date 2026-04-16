@@ -570,7 +570,8 @@ async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: Asy
     await asyncio.sleep(1)
     await send_iq_question(callback.message, state, 0)
     await callback.answer()
-    async def send_iq_question(message: Message, state: FSMContext, index: int):
+
+async def send_iq_question(message: Message, state: FSMContext, index: int):
     q = IQ_QUESTIONS[index]
     builder = InlineKeyboardBuilder()
     for i, opt in enumerate(q["o"]):
