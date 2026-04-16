@@ -13,6 +13,15 @@ RANK_BONUS_MULTIPLIER = {
     "Старший лейтенант": 64
 }
 
+RANK_REWARDS = {
+    "Ефрейтор": 20000,
+    "Младший сержант": 40000,
+    "Сержант": 80000,
+    "Старший сержант": 160000,
+    "Лейтенант": 320000,
+    "Старший лейтенант": 640000
+}
+
 async def check_rank_upgrade(user: User, session: AsyncSession):
     """Проверяет и обновляет звание на основе total_earned"""
     total = user.total_earned
@@ -46,8 +55,14 @@ async def add_medal(user: User, medal_name: str, session: AsyncSession):
         return True
     return False
 
-def calculate_deposit_payout(amount: float, days: int) -> float:
-    return amount * (1 + 0.2 * days)
+def calculate_deposit_payout(amount: float, hours_passed: float) -> float:
+    """Расчёт суммы вклада с учётом 20% за каждый час"""
+    return amount * (1 + 0.2 * hours_passed)
+
+def calculate_credit_debt(original: float, hours_passed: float) -> float:
+    """Расчёт долга по кредиту: +30% каждые 5 часов"""
+    periods = hours_passed / 5.0
+    return original * (1 + 0.3 * periods)
 
 def get_rank_conditions():
     return (
@@ -59,5 +74,12 @@ def get_rank_conditions():
         "• Старший сержант — доход от 400 000 ₽\n"
         "• Лейтенант — доход от 800 000 ₽\n"
         "• Старший лейтенант — доход от 1 600 000 ₽\n"
-        "💰 Ежедневный бонус удваивается с каждым званием!"
+        "💰 Ежедневный бонус удваивается с каждым званием!\n"
+        "🎁 Также при получении нового звания вы получаете денежную награду (удваивается с каждым званием):\n"
+        "   Ефрейтор — 20 000 ₽\n"
+        "   Мл. сержант — 40 000 ₽\n"
+        "   Сержант — 80 000 ₽\n"
+        "   Ст. сержант — 160 000 ₽\n"
+        "   Лейтенант — 320 000 ₽\n"
+        "   Ст. лейтенант — 640 000 ₽"
     )
