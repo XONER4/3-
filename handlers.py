@@ -2,7 +2,7 @@ import json
 import random
 import asyncio
 from datetime import datetime, timedelta
-from aiogram import Router, F, Bot
+from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -99,7 +99,7 @@ async def add_transaction(session: AsyncSession, user_id: int, amount: float, ty
     session.add(transaction)
     await session.commit()
 
-async def update_balance(user: User, amount: float, session: AsyncSession, type_: str, description: str = None):
+async def update_balance(user: User, amount: float, session: AsyncSession, type_: str, description: str = None, bot=None):
     user.balance += amount
     if amount > 0:
         user.total_earned += amount
@@ -114,15 +114,15 @@ async def update_balance(user: User, amount: float, session: AsyncSession, type_
             user.total_earned += reward
             await add_transaction(session, user.id, reward, "rank_reward", f"Награда за звание {new}")
             await session.commit()
-        try:
-            from bot import bot
-            msg = f"🎉 Поздравляем! Ваше звание повышено с {old} до {new}!\n"
-            msg += f"Теперь ваш ежедневный бонус составляет {DAILY_BONUS_BASE * RANK_BONUS_MULTIPLIER[new]:,} ₽!\n"
-            if reward > 0:
-                msg += f"💰 Вы получили награду {reward:,.0f} ₽!"
-            await bot.send_message(user.telegram_id, msg)
-        except:
-            pass
+        if bot:
+            try:
+                msg = f"🎉 Поздравляем! Ваше звание повышено с {old} до {new}!\n"
+                msg += f"Теперь ваш ежедневный бонус составляет {DAILY_BONUS_BASE * RANK_BONUS_MULTIPLIER[new]:,} ₽!\n"
+                if reward > 0:
+                    msg += f"💰 Вы получили награду {reward:,.0f} ₽!"
+                await bot.send_message(user.telegram_id, msg)
+            except:
+                pass
 
 def format_balance(amount: float) -> str:
     return f"{amount:,.0f}".replace(",", ".")
@@ -314,8 +314,7 @@ async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
     if user.daily_bonus_count >= 10:
         added = await add_medal(user, "❇️БОНУС❇️", session)
         if added:
-            from bot import bot
-            await notify_user(bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '❇️БОНУС❇️' за 10 ежедневных бонусов!")
+            await notify_user(callback.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '❇️БОНУС❇️' за 10 ежедневных бонусов!")
     
     await callback.message.edit_text(
         f"🎁 Вы получили ежедневный бонус {format_balance(bonus)} ₽!\n"
@@ -399,17 +398,16 @@ async def dice_guess(callback: CallbackQuery, state: FSMContext, session: AsyncS
     won = (guess == dice_value)
     if won:
         payout = bet * 6
-        await update_balance(user, payout - bet, session, "casino_win", f"Кубик: угадал {guess}, выпало {dice_value}")
+        await update_balance(user, payout - bet, session, "casino_win", f"Кубик: угадал {guess}, выпало {dice_value}", callback.bot)
         text = f"🎉 Вы угадали! Выпало {dice_value}. Выигрыш x6: {format_balance(payout)} ₽!"
     else:
-        await update_balance(user, -bet, session, "casino_loss", f"Кубик: не угадал (загадано {guess}, выпало {dice_value})")
+        await update_balance(user, -bet, session, "casino_loss", f"Кубик: не угадал (загадано {guess}, выпало {dice_value})", callback.bot)
         text = f"😢 Не угадали. Загадано {guess}, выпало {dice_value}. Проигрыш {format_balance(bet)} ₽."
     
     user.casino_bets_count += 1
     if user.casino_bets_count == 30:
         await add_medal(user, "🎰ЛУДОМАН🎰", session)
-        from bot import bot
-        await notify_user(bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '🎰ЛУДОМАН🎰' за 30 ставок в казино!")
+        await notify_user(callback.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '🎰ЛУДОМАН🎰' за 30 ставок в казино!")
     
     game = CasinoGame(
         user_id=user.id,
@@ -490,17 +488,16 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
     won = multiplier > 0
     if won:
         payout = bet * multiplier
-        await update_balance(user, payout - bet, session, "casino_win", f"Слоты: {combo}")
+        await update_balance(user, payout - bet, session, "casino_win", f"Слоты: {combo}", callback.bot)
         text = f"🎉 Слоты! Комбинация {slot_value} ({combo}). Выигрыш x{multiplier}: {format_balance(payout)} ₽"
     else:
-        await update_balance(user, -bet, session, "casino_loss", f"Слоты: {combo}")
+        await update_balance(user, -bet, session, "casino_loss", f"Слоты: {combo}", callback.bot)
         text = f"😢 Слоты! Комбинация {slot_value} ({combo}). Проигрыш {format_balance(bet)} ₽."
     
     user.casino_bets_count += 1
     if user.casino_bets_count == 30:
         await add_medal(user, "🎰ЛУДОМАН🎰", session)
-        from bot import bot
-        await notify_user(bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '🎰ЛУДОМАН🎰' за 30 ставок в казино!")
+        await notify_user(callback.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '🎰ЛУДОМАН🎰' за 30 ставок в казино!")
     
     game = CasinoGame(
         user_id=user.id,
@@ -634,12 +631,11 @@ async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: li
         bonus = -1000
         detail = f"{correct}/15"
     
-    await update_balance(user, bonus, session, "iq_bonus", f"Тест IQ: {correct}/{total}")
+    await update_balance(user, bonus, session, "iq_bonus", f"Тест IQ: {correct}/{total}", callback.bot)
     if medal:
         added = await add_medal(user, medal, session)
         if added:
-            from bot import bot
-            await notify_user(bot, user.telegram_id, f"🎉 Поздравляем! Вы получили медаль '{medal}' за тест IQ!")
+            await notify_user(callback.bot, user.telegram_id, f"🎉 Поздравляем! Вы получили медаль '{medal}' за тест IQ!")
     
     iq_result = IQResult(
         user_id=user.id,
@@ -757,8 +753,7 @@ async def credit_term_chosen(callback: CallbackQuery, state: FSMContext, session
     if user.loans_taken > 2:
         added = await add_medal(user, "❌ЛЮБИТЕЛЬ КРЕДИТОВ❌", session)
         if added:
-            from bot import bot
-            await notify_user(bot, user.telegram_id, "🎉 Вы получили медаль '❌ЛЮБИТЕЛЬ КРЕДИТОВ❌' за взятие более 2 кредитов!")
+            await notify_user(callback.bot, user.telegram_id, "🎉 Вы получили медаль '❌ЛЮБИТЕЛЬ КРЕДИТОВ❌' за взятие более 2 кредитов!")
     
     await callback.message.edit_text(
         f"✅ Кредит одобрен!\n"
@@ -887,8 +882,7 @@ async def deposit_amount_input(message: Message, state: FSMContext, session: Asy
     if user.deposits_made > 2:
         added = await add_medal(user, "🤑🤑ВКЛАДЧИК🤑🤑", session)
         if added:
-            from bot import bot
-            await notify_user(bot, user.telegram_id, "🎉 Вы получили медаль '🤑🤑ВКЛАДЧИК🤑🤑' за открытие более 2 вкладов!")
+            await notify_user(message.bot, user.telegram_id, "🎉 Вы получили медаль '🤑🤑ВКЛАДЧИК🤑🤑' за открытие более 2 вкладов!")
     
     await message.answer(
         f"✅ Вклад открыт!\nСумма: {format_balance(amount)} ₽\nПроцент: 20% каждый час.",
@@ -991,13 +985,11 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     if total_transferred >= 50000:
         added = await add_medal(user, "😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍", session)
         if added:
-            from bot import bot
-            await notify_user(bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍' за переводы на сумму от 50.000 ₽!")
+            await notify_user(message.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍' за переводы на сумму от 50.000 ₽!")
     
-    from bot import bot
     local_time = datetime.now() + timedelta(hours=TIMEZONE_OFFSET)
     await notify_user(
-        bot,
+        message.bot,
         recip.telegram_id,
         f"💰 Вам поступил перевод!\n"
         f"Отправитель: {user.full_name}\n"
@@ -1116,15 +1108,13 @@ async def shop_gift(message: Message, state: FSMContext, session: AsyncSession):
     if user.gifts_sent >= 5:
         added = await add_medal(user, "🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁", session)
         if added:
-            from bot import bot
-            await notify_user(bot, user.telegram_id, "🎉 Вы получили медаль '🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁' за 5 подарков!")
+            await notify_user(message.bot, user.telegram_id, "🎉 Вы получили медаль '🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁' за 5 подарков!")
     
     await session.commit()
     await add_transaction(session, user.id, -item["price"], "gift_sent", f"Подарок {item['name']} для {recip.full_name}")
     
-    from bot import bot
     await notify_user(
-        bot,
+        message.bot,
         recip.telegram_id,
         f"🎁 {user.full_name} подарил вам {item['name']}!"
     )
@@ -1368,12 +1358,10 @@ async def charity_donate_amount(message: Message, state: FSMContext, session: As
     if user.total_donated >= 20000:
         added = await add_medal(user, "🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️", session)
         if added:
-            from bot import bot
-            await notify_user(bot, user.telegram_id, "🎉 Вы получили медаль '🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️' за пожертвования от 20.000 ₽!")
+            await notify_user(message.bot, user.telegram_id, "🎉 Вы получили медаль '🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️' за пожертвования от 20.000 ₽!")
     
-    from bot import bot
     await notify_user(
-        bot,
+        message.bot,
         poorest.telegram_id,
         f"💰 Вам поступило анонимное пожертвование {format_balance(amount)} ₽ из благотворительного фонда!\n"
         f"Ваш текущий баланс: {format_balance(poorest.balance)} ₽"
