@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import BOT_TOKEN, ADMIN_ID, TIMEZONE_OFFSET
@@ -17,7 +17,7 @@ from database import init_db, AsyncSessionLocal
 from handlers import router
 from admin import admin_router
 from models import User, Transaction
-from utils import calculate_deposit_payout, calculate_credit_debt, add_medal, notify_user as notify_user_util
+from utils import calculate_deposit_payout, calculate_credit_debt, add_medal, notify_user
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,33 +53,28 @@ async def background_task():
                 users = users_with_credit.scalars().all()
                 
                 for user in users:
-                    # Пересчитываем текущий долг с учётом начисленных процентов
                     hours_passed = (now - user.credit_start_date).total_seconds() / 3600
                     current_debt = calculate_credit_debt(user.credit_original, hours_passed)
-                    
-                    # Обновляем сумму долга в базе
                     user.credit_amount = current_debt
                     
-                    # Проверяем просрочку (если прошло больше срока)
                     if now > user.credit_due_date:
-                        # Если ещё не уведомляли о просрочке
                         if not user.credit_overdue_notified:
-                            await notify_user_util(
+                            await notify_user(
+                                bot,
                                 user.telegram_id,
                                 f"⚠️ Внимание! Срок погашения кредита истёк!\n"
                                 f"Текущий долг: {current_debt:,.0f} ₽.\n"
                                 f"Пожалуйста, погасите кредит в ближайшее время, иначе долг будет списан автоматически."
                             )
                             user.credit_overdue_notified = True
-                            # Выдаём медаль "Должник"
                             added = await add_medal(user, "🔴ДОЛЖНИК🔴", session)
                             if added:
-                                await notify_user_util(
+                                await notify_user(
+                                    bot,
                                     user.telegram_id,
                                     "🎉 Вы получили медаль '🔴ДОЛЖНИК🔴' за просрочку кредита!"
                                 )
                         
-                        # Если прошло более 5 часов после срока — пытаемся списать долг
                         if now > user.credit_due_date + timedelta(hours=5):
                             if user.balance >= current_debt:
                                 user.balance -= current_debt
@@ -90,7 +85,6 @@ async def background_task():
                                 user.credit_due_date = None
                                 user.credit_overdue_notified = False
                                 await session.commit()
-                                # Добавляем транзакцию
                                 trans = Transaction(
                                     user_id=user.id,
                                     amount=-current_debt,
@@ -99,14 +93,14 @@ async def background_task():
                                 )
                                 session.add(trans)
                                 await session.commit()
-                                await notify_user_util(
+                                await notify_user(
+                                    bot,
                                     user.telegram_id,
                                     f"✅ Ваш просроченный кредит автоматически погашен.\n"
                                     f"Списано: {current_debt:,.0f} ₽\n"
                                     f"Остаток на балансе: {user.balance:,.0f} ₽"
                                 )
                             else:
-                                # Если денег не хватает, списываем всё что есть и оставляем долг
                                 if user.balance > 0:
                                     user.credit_amount -= user.balance
                                     user.balance = 0
@@ -119,14 +113,12 @@ async def background_task():
                                     )
                                     session.add(trans)
                                     await session.commit()
-                                    await notify_user_util(
+                                    await notify_user(
+                                        bot,
                                         user.telegram_id,
                                         f"⚠️ С вашего баланса списано {user.balance:,.0f} ₽ в счёт долга по кредиту.\n"
                                         f"Остаток долга: {user.credit_amount:,.0f} ₽"
                                     )
-                
-                # 2. Обработка вкладов (просто обновляем сумму с процентами — она считается динамически при закрытии)
-                # Ничего дополнительно не делаем, так как сумма вклада с процентами вычисляется на лету.
                 
                 await session.commit()
                 logger.info("Фоновая проверка кредитов выполнена")
@@ -139,7 +131,6 @@ async def main():
     await init_db()
     logger.info("База данных инициализирована.")
     
-    # Запускаем фоновую задачу
     asyncio.create_task(background_task())
     
     logger.info("Запуск бота...")
