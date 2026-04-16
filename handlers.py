@@ -20,7 +20,6 @@ from utils import (
     calculate_credit_debt, get_rank_conditions, RANK_BONUS_MULTIPLIER,
     notify_user, RANK_REWARDS
 )
-from bot import bot  # <-- теперь импортируем bot глобально
 
 router = Router()
 
@@ -109,7 +108,6 @@ async def update_balance(user: User, amount: float, session: AsyncSession, type_
     rank_change = await check_rank_upgrade(user, session)
     if rank_change:
         old, new = rank_change
-        # Начисляем денежную награду за новое звание
         reward = RANK_REWARDS.get(new, 0)
         if reward > 0:
             user.balance += reward
@@ -117,6 +115,7 @@ async def update_balance(user: User, amount: float, session: AsyncSession, type_
             await add_transaction(session, user.id, reward, "rank_reward", f"Награда за звание {new}")
             await session.commit()
         try:
+            from bot import bot
             msg = f"🎉 Поздравляем! Ваше звание повышено с {old} до {new}!\n"
             msg += f"Теперь ваш ежедневный бонус составляет {DAILY_BONUS_BASE * RANK_BONUS_MULTIPLIER[new]:,} ₽!\n"
             if reward > 0:
@@ -312,10 +311,10 @@ async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
     await session.commit()
     await add_transaction(session, user.id, bonus, "daily_bonus", f"Ежедневный бонус ({user.rank})")
     
-    # Проверка медали за 10 бонусов
     if user.daily_bonus_count >= 10:
         added = await add_medal(user, "❇️БОНУС❇️", session)
         if added:
+            from bot import bot
             await notify_user(bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '❇️БОНУС❇️' за 10 ежедневных бонусов!")
     
     await callback.message.edit_text(
@@ -355,7 +354,6 @@ async def dice_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CasinoState.waiting_for_dice_bet)
     await callback.answer()
 
-# Кнопка "Назад" в состоянии ожидания ставки кубика
 @router.callback_query(StateFilter(CasinoState.waiting_for_dice_bet), F.data == "casino_menu")
 async def back_from_dice_bet(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -379,7 +377,6 @@ async def dice_bet_set(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CasinoState.waiting_for_dice_guess)
     await callback.answer()
 
-# Кнопка "Назад" при загадывании числа (возврат к ставкам)
 @router.callback_query(StateFilter(CasinoState.waiting_for_dice_guess), F.data == "casino_dice")
 async def back_from_dice_guess(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -411,6 +408,7 @@ async def dice_guess(callback: CallbackQuery, state: FSMContext, session: AsyncS
     user.casino_bets_count += 1
     if user.casino_bets_count == 30:
         await add_medal(user, "🎰ЛУДОМАН🎰", session)
+        from bot import bot
         await notify_user(bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '🎰ЛУДОМАН🎰' за 30 ставок в казино!")
     
     game = CasinoGame(
@@ -442,7 +440,6 @@ async def slots_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CasinoState.waiting_for_slots_bet)
     await callback.answer()
 
-# Кнопка "Назад" в состоянии ожидания ставки слотов
 @router.callback_query(StateFilter(CasinoState.waiting_for_slots_bet), F.data == "casino_menu")
 async def back_from_slots_bet(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -502,6 +499,7 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
     user.casino_bets_count += 1
     if user.casino_bets_count == 30:
         await add_medal(user, "🎰ЛУДОМАН🎰", session)
+        from bot import bot
         await notify_user(bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '🎰ЛУДОМАН🎰' за 30 ставок в казино!")
     
     game = CasinoGame(
@@ -558,7 +556,6 @@ async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: Asy
         await callback.answer("Для прохождения теста нужно минимум 1.000 ₽ на балансе!", show_alert=True)
         return
     
-    # Списываем 1000 ₽ за участие
     user.balance -= 1000
     await add_transaction(session, user.id, -1000, "iq_fee", "Оплата за прохождение IQ теста")
     await session.commit()
@@ -641,6 +638,7 @@ async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: li
     if medal:
         added = await add_medal(user, medal, session)
         if added:
+            from bot import bot
             await notify_user(bot, user.telegram_id, f"🎉 Поздравляем! Вы получили медаль '{medal}' за тест IQ!")
     
     iq_result = IQResult(
@@ -703,7 +701,6 @@ async def take_credit_start(callback: CallbackQuery, state: FSMContext, session:
     await state.update_data(max_credit=max_credit)
     await callback.answer()
 
-# Кнопка "Назад" в состоянии ожидания суммы кредита
 @router.callback_query(StateFilter(CreditState.waiting_for_amount), F.data == "credit_menu")
 async def back_from_credit_amount(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -730,7 +727,6 @@ async def credit_amount_input(message: Message, state: FSMContext, session: Asyn
     )
     await state.set_state(CreditState.waiting_for_term)
 
-# Кнопка "Назад" при выборе срока
 @router.callback_query(StateFilter(CreditState.waiting_for_term), F.data == "credit_menu")
 async def back_from_credit_term(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -758,10 +754,10 @@ async def credit_term_chosen(callback: CallbackQuery, state: FSMContext, session
     await session.commit()
     await add_transaction(session, user.id, amount, "credit", f"Взят кредит {format_balance(amount)} ₽ на {term} ч")
     
-    # Медаль "Любитель кредитов"
     if user.loans_taken > 2:
         added = await add_medal(user, "❌ЛЮБИТЕЛЬ КРЕДИТОВ❌", session)
         if added:
+            from bot import bot
             await notify_user(bot, user.telegram_id, "🎉 Вы получили медаль '❌ЛЮБИТЕЛЬ КРЕДИТОВ❌' за взятие более 2 кредитов!")
     
     await callback.message.edit_text(
@@ -862,7 +858,6 @@ async def deposit_start(callback: CallbackQuery, state: FSMContext, session: Asy
     await state.set_state(DepositState.waiting_for_amount)
     await callback.answer()
 
-# Кнопка "Назад" в состоянии ожидания суммы вклада
 @router.callback_query(StateFilter(DepositState.waiting_for_amount), F.data == "deposit_menu")
 async def back_from_deposit_amount(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -892,6 +887,7 @@ async def deposit_amount_input(message: Message, state: FSMContext, session: Asy
     if user.deposits_made > 2:
         added = await add_medal(user, "🤑🤑ВКЛАДЧИК🤑🤑", session)
         if added:
+            from bot import bot
             await notify_user(bot, user.telegram_id, "🎉 Вы получили медаль '🤑🤑ВКЛАДЧИК🤑🤑' за открытие более 2 вкладов!")
     
     await message.answer(
@@ -995,9 +991,10 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     if total_transferred >= 50000:
         added = await add_medal(user, "😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍", session)
         if added:
+            from bot import bot
             await notify_user(bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍' за переводы на сумму от 50.000 ₽!")
     
-    # Уведомление получателю
+    from bot import bot
     local_time = datetime.now() + timedelta(hours=TIMEZONE_OFFSET)
     await notify_user(
         bot,
@@ -1119,12 +1116,13 @@ async def shop_gift(message: Message, state: FSMContext, session: AsyncSession):
     if user.gifts_sent >= 5:
         added = await add_medal(user, "🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁", session)
         if added:
+            from bot import bot
             await notify_user(bot, user.telegram_id, "🎉 Вы получили медаль '🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁' за 5 подарков!")
     
     await session.commit()
     await add_transaction(session, user.id, -item["price"], "gift_sent", f"Подарок {item['name']} для {recip.full_name}")
     
-    # Уведомление получателю
+    from bot import bot
     await notify_user(
         bot,
         recip.telegram_id,
@@ -1282,7 +1280,6 @@ async def photo_uploaded(message: Message, state: FSMContext, session: AsyncSess
 # ---------- Новости ----------
 @router.callback_query(F.data == "news")
 async def news(callback: CallbackQuery, session: AsyncSession):
-    # Получаем последние 10 транзакций
     result = await session.execute(
         select(Transaction).order_by(desc(Transaction.timestamp)).limit(10)
     )
@@ -1291,13 +1288,10 @@ async def news(callback: CallbackQuery, session: AsyncSession):
     text = "📰 Последние события (МСК):\n"
     for t in trans:
         local_time = t.timestamp + timedelta(hours=TIMEZONE_OFFSET)
-        
-        # Определяем имя пользователя
         if t.type in ("charity", "charity_received"):
             user_name = "Аноним"
             desc = "Анонимное пожертвование"
         else:
-            # Загружаем пользователя вручную для надёжности
             user = await get_user(t.user_id, session) if t.user_id else None
             user_name = user.full_name if user else "Неизвестный"
             desc = t.description or t.type
@@ -1368,16 +1362,16 @@ async def charity_donate_amount(message: Message, state: FSMContext, session: As
     poorest.total_earned += amount
     user.total_donated += amount
     await session.commit()
-    # Анонимные транзакции без указания имён
     await add_transaction(session, user.id, -amount, "charity", "Анонимное пожертвование в фонд")
     await add_transaction(session, poorest.id, amount, "charity_received", "Получена анонимная помощь из фонда")
     
     if user.total_donated >= 20000:
         added = await add_medal(user, "🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️", session)
         if added:
+            from bot import bot
             await notify_user(bot, user.telegram_id, "🎉 Вы получили медаль '🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️' за пожертвования от 20.000 ₽!")
     
-    # Уведомление бедняку — анонимное
+    from bot import bot
     await notify_user(
         bot,
         poorest.telegram_id,
