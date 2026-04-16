@@ -255,9 +255,9 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
 
 # ---------- Главное меню ----------
 @router.callback_query(F.data == "back_to_main")
-async def back_to_main(callback: CallbackQuery, state: FSMContext):
+async def back_to_main(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     await state.clear()
-    user = await get_user(callback.from_user.id, next(get_db()))
+    user = await get_user(callback.from_user.id, session)
     text = MAIN_MENU_TEXT.replace("{name}", user.full_name).replace("{date}", get_current_date())
     await callback.message.edit_text(text, reply_markup=main_menu())
     await callback.answer()
@@ -351,6 +351,12 @@ async def dice_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CasinoState.waiting_for_dice_bet)
     await callback.answer()
 
+# Кнопка "Назад" в состоянии ожидания ставки кубика
+@router.callback_query(StateFilter(CasinoState.waiting_for_dice_bet), F.data == "casino_menu")
+async def back_from_dice_bet(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await casino_menu(callback)
+
 @router.callback_query(StateFilter(CasinoState.waiting_for_dice_bet), F.data.startswith("dice_"))
 async def dice_bet_set(callback: CallbackQuery, state: FSMContext):
     data = callback.data
@@ -368,6 +374,12 @@ async def dice_bet_set(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(CasinoState.waiting_for_dice_guess)
     await callback.answer()
+
+# Кнопка "Назад" при загадывании числа (возврат к ставкам)
+@router.callback_query(StateFilter(CasinoState.waiting_for_dice_guess), F.data == "casino_dice")
+async def back_from_dice_guess(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await dice_start(callback, state)
 
 @router.callback_query(StateFilter(CasinoState.waiting_for_dice_guess), F.data.startswith("dice_guess_"))
 async def dice_guess(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
@@ -425,6 +437,12 @@ async def slots_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("🎰 Выберите сумму ставки:", reply_markup=slots_bet_keyboard())
     await state.set_state(CasinoState.waiting_for_slots_bet)
     await callback.answer()
+
+# Кнопка "Назад" в состоянии ожидания ставки слотов
+@router.callback_query(StateFilter(CasinoState.waiting_for_slots_bet), F.data == "casino_menu")
+async def back_from_slots_bet(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await casino_menu(callback)
 
 @router.callback_query(StateFilter(CasinoState.waiting_for_slots_bet), F.data.startswith("slots_"))
 async def slots_bet_set(callback: CallbackQuery, state: FSMContext):
@@ -536,10 +554,15 @@ async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: Asy
         await callback.answer("Для прохождения теста нужно минимум 1.000 ₽ на балансе!", show_alert=True)
         return
     
+    # Списываем 1000 ₽ за участие
+    user.balance -= 1000
+    await add_transaction(session, user.id, -1000, "iq_fee", "Оплата за прохождение IQ теста")
+    await session.commit()
+    
     builder = InlineKeyboardBuilder()
     builder.button(text="🚫 Отменить тест", callback_data="cancel_iq")
     await callback.message.edit_text(
-        "🧠 Тест IQ. 15 вопросов. Нажмите 'Отменить тест' чтобы выйти без последствий.",
+        "🧠 Тест IQ. 15 вопросов. Нажмите 'Отменить тест' чтобы выйти без возврата средств.",
         reply_markup=builder.as_markup()
     )
     await state.update_data(iq_answers=[], iq_index=0)
@@ -547,8 +570,7 @@ async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: Asy
     await asyncio.sleep(1)
     await send_iq_question(callback.message, state, 0)
     await callback.answer()
-
-async def send_iq_question(message: Message, state: FSMContext, index: int):
+    async def send_iq_question(message: Message, state: FSMContext, index: int):
     q = IQ_QUESTIONS[index]
     builder = InlineKeyboardBuilder()
     for i, opt in enumerate(q["o"]):
@@ -563,7 +585,7 @@ async def send_iq_question(message: Message, state: FSMContext, index: int):
 @router.callback_query(F.data == "cancel_iq")
 async def cancel_iq(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text("❌ Тест IQ отменён.", reply_markup=main_menu())
+    await callback.message.edit_text("❌ Тест IQ отменён. Средства не возвращаются.", reply_markup=main_menu())
     await callback.answer()
 
 @router.callback_query(StateFilter(IQState.answering), F.data.startswith("iq_ans_"))
@@ -657,6 +679,12 @@ async def take_credit_start(callback: CallbackQuery, state: FSMContext, session:
     await state.update_data(max_credit=max_credit)
     await callback.answer()
 
+# Кнопка "Назад" в состоянии ожидания суммы кредита
+@router.callback_query(StateFilter(CreditState.waiting_for_amount), F.data == "credit_menu")
+async def back_from_credit_amount(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await credit_menu(callback)
+
 @router.message(StateFilter(CreditState.waiting_for_amount), F.text)
 async def credit_amount_input(message: Message, state: FSMContext, session: AsyncSession):
     try:
@@ -709,9 +737,15 @@ async def deposit_start(callback: CallbackQuery, state: FSMContext, session: Asy
         await callback.answer("У вас уже открыт вклад!", show_alert=True)
         return
     
-    await callback.message.edit_text("Введите сумму вклада:")
+    await callback.message.edit_text("Введите сумму вклада:", reply_markup=back_keyboard("deposit_menu"))
     await state.set_state(DepositState.waiting_for_amount)
     await callback.answer()
+
+# Кнопка "Назад" в состоянии ожидания суммы вклада
+@router.callback_query(StateFilter(DepositState.waiting_for_amount), F.data == "deposit_menu")
+async def back_from_deposit_amount(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await deposit_menu(callback)
 
 @router.message(StateFilter(DepositState.waiting_for_amount), F.text)
 async def deposit_amount(message: Message, state: FSMContext, session: AsyncSession):
@@ -727,8 +761,14 @@ async def deposit_amount(message: Message, state: FSMContext, session: AsyncSess
         return
     
     await state.update_data(deposit_amount=amount)
-    await message.answer("Введите срок вклада (от 1 до 3 дней):")
+    await message.answer("Введите срок вклада (от 1 до 3 дней):", reply_markup=back_keyboard("deposit_menu"))
     await state.set_state(DepositState.waiting_for_days)
+
+# Кнопка "Назад" в состоянии ожидания срока вклада
+@router.callback_query(StateFilter(DepositState.waiting_for_days), F.data == "deposit_menu")
+async def back_from_deposit_days(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await deposit_menu(callback)
 
 @router.message(StateFilter(DepositState.waiting_for_days), F.text)
 async def deposit_days(message: Message, state: FSMContext, session: AsyncSession):
@@ -778,6 +818,12 @@ async def transfer_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(TransferState.waiting_for_recipient_name)
     await callback.answer()
 
+# Кнопка "Назад" в состоянии ожидания имени получателя
+@router.callback_query(StateFilter(TransferState.waiting_for_recipient_name), F.data == "back_to_main")
+async def back_from_transfer_name(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    await back_to_main(callback, state, session)
+
 @router.message(StateFilter(TransferState.waiting_for_recipient_name), F.text)
 async def transfer_recipient(message: Message, state: FSMContext, session: AsyncSession):
     recip_name = message.text.strip()
@@ -787,8 +833,14 @@ async def transfer_recipient(message: Message, state: FSMContext, session: Async
         return
     
     await state.update_data(recip_id=recip.telegram_id, recip_name=recip.full_name)
-    await message.answer(f"Получатель: {recip.full_name}\nВведите сумму перевода:")
+    await message.answer(f"Получатель: {recip.full_name}\nВведите сумму перевода:", reply_markup=back_keyboard("back_to_main"))
     await state.set_state(TransferState.waiting_for_amount)
+
+# Кнопка "Назад" в состоянии ожидания суммы перевода
+@router.callback_query(StateFilter(TransferState.waiting_for_amount), F.data == "back_to_main")
+async def back_from_transfer_amount(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    await back_to_main(callback, state, session)
 
 @router.message(StateFilter(TransferState.waiting_for_amount), F.text)
 async def transfer_amount(message: Message, state: FSMContext, session: AsyncSession):
@@ -859,6 +911,12 @@ async def shop_category(callback: CallbackQuery, state: FSMContext):
     await state.update_data(category=cat)
     await callback.answer()
 
+# Кнопка "Назад" в состоянии выбора товара
+@router.callback_query(StateFilter(ShopState.choosing_item), F.data == "shop_menu")
+async def back_from_shop_item(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await shop_menu(callback)
+
 @router.callback_query(StateFilter(ShopState.choosing_item), F.data.startswith("buy_"))
 async def shop_choose_action(callback: CallbackQuery, state: FSMContext):
     _, cat, idx = callback.data.split("_")
@@ -876,6 +934,14 @@ async def shop_choose_action(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(ShopState.choosing_action)
     await callback.answer()
+
+# Кнопка "Назад" в состоянии выбора действия
+@router.callback_query(StateFilter(ShopState.choosing_action), F.data.startswith("shop_"))
+async def back_from_shop_action(callback: CallbackQuery, state: FSMContext):
+    cat = callback.data.split("_")[1]
+    await state.update_data(category=cat)
+    await state.set_state(ShopState.choosing_item)
+    await shop_category(callback, state)
 
 @router.callback_query(StateFilter(ShopState.choosing_action), F.data.startswith("action_"))
 async def shop_action(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
@@ -901,9 +967,15 @@ async def shop_action(callback: CallbackQuery, state: FSMContext, session: Async
         )
         await state.clear()
     else:
-        await callback.message.edit_text("Введите Имя и Фамилию получателя:")
+        await callback.message.edit_text("Введите Имя и Фамилию получателя:", reply_markup=back_keyboard("shop_menu"))
         await state.set_state(ShopState.choosing_recipient_name)
     await callback.answer()
+
+# Кнопка "Назад" в состоянии ввода имени получателя подарка
+@router.callback_query(StateFilter(ShopState.choosing_recipient_name), F.data == "shop_menu")
+async def back_from_shop_recipient(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await shop_menu(callback)
 
 @router.message(StateFilter(ShopState.choosing_recipient_name), F.text)
 async def shop_gift(message: Message, state: FSMContext, session: AsyncSession):
@@ -1061,9 +1133,20 @@ async def profile_medals(callback: CallbackQuery, session: AsyncSession):
 
 @router.callback_query(F.data == "profile_upload_photo")
 async def profile_upload_photo(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("📸 Отправьте фотографию для профиля:")
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔙 Назад", callback_data="profile")
+    await callback.message.edit_text(
+        "📸 Отправьте фотографию для профиля или нажмите 'Назад' для отмены:",
+        reply_markup=builder.as_markup()
+    )
     await state.set_state(PhotoUploadState.waiting_for_photo)
     await callback.answer()
+
+# Кнопка "Назад" при загрузке фото
+@router.callback_query(StateFilter(PhotoUploadState.waiting_for_photo), F.data == "profile")
+async def back_from_photo_upload(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    await profile_main(callback, session)
 
 @router.message(StateFilter(PhotoUploadState.waiting_for_photo), F.photo)
 async def photo_uploaded(message: Message, state: FSMContext, session: AsyncSession):
@@ -1119,9 +1202,15 @@ async def charity_menu(callback: CallbackQuery, session: AsyncSession):
 
 @router.callback_query(F.data == "charity_donate")
 async def charity_donate_start(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Введите сумму пожертвования:")
+    await callback.message.edit_text("Введите сумму пожертвования:", reply_markup=back_keyboard("charity"))
     await state.set_state(CharityState.waiting_for_amount)
     await callback.answer()
+
+# Кнопка "Назад" в состоянии ввода суммы пожертвования
+@router.callback_query(StateFilter(CharityState.waiting_for_amount), F.data == "charity")
+async def back_from_charity_amount(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    await charity_menu(callback, session)
 
 @router.message(StateFilter(CharityState.waiting_for_amount), F.text)
 async def charity_donate_amount(message: Message, state: FSMContext, session: AsyncSession):
