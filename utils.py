@@ -1,7 +1,10 @@
 import json
+import logging
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from models import User
+
+logger = logging.getLogger(__name__)
 
 RANK_BONUS_MULTIPLIER = {
     "Рядовой": 1,
@@ -27,8 +30,9 @@ async def notify_user(telegram_id: int, text: str):
     try:
         from bot import bot
         await bot.send_message(telegram_id, text)
-    except:
-        pass
+        logger.info(f"Уведомление отправлено пользователю {telegram_id}")
+    except Exception as e:
+        logger.error(f"Не удалось отправить уведомление пользователю {telegram_id}: {e}")
 
 async def check_rank_upgrade(user: User, session: AsyncSession):
     """Проверяет и обновляет звание на основе total_earned"""
