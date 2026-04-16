@@ -4,31 +4,23 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def main_menu():
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="💰 Баланс", callback_data="balance"),
-        InlineKeyboardButton(text="🎰 Казино", callback_data="casino_menu")
+        InlineKeyboardButton(text="🏦✅СберБанк✅🏦", callback_data="bank_menu")
     )
     builder.row(
-        InlineKeyboardButton(text="🧠 Тест IQ", callback_data="iq_test"),
-        InlineKeyboardButton(text="📋 Кредит", callback_data="credit_menu")
+        InlineKeyboardButton(text="🎰 Казино", callback_data="casino_menu"),
+        InlineKeyboardButton(text="🧠 Тест IQ", callback_data="iq_test")
     )
     builder.row(
-        InlineKeyboardButton(text="🏦 Вклад", callback_data="deposit_menu"),
-        InlineKeyboardButton(text="🎁 Магазин", callback_data="shop_menu")
+        InlineKeyboardButton(text="🎁 Магазин", callback_data="shop_menu"),
+        InlineKeyboardButton(text="📊 Личное дело", callback_data="profile")
     )
     builder.row(
-        InlineKeyboardButton(text="📊 Личное дело", callback_data="profile"),
-        InlineKeyboardButton(text="📰 Новости", callback_data="news")
-    )
-    builder.row(
-        InlineKeyboardButton(text="🎖️ Медали", callback_data="medals_info"),
-        InlineKeyboardButton(text="🔄 Перевод", callback_data="transfer")
+        InlineKeyboardButton(text="📰 Новости", callback_data="news"),
+        InlineKeyboardButton(text="🎖️ Медали", callback_data="medals_info")
     )
     builder.row(
         InlineKeyboardButton(text="🎁 Ежедневный бонус", callback_data="daily_bonus"),
         InlineKeyboardButton(text="👨‍👩‍👧‍👦 Семья", callback_data="family")
-    )
-    builder.row(
-        InlineKeyboardButton(text="🆘 ПОМОГИ СЕМЬЕ 🆘", callback_data="charity")
     )
     builder.row(
         InlineKeyboardButton(text="❓ Помощь", callback_data="help")
@@ -42,6 +34,15 @@ def password_keyboard():
         one_time_keyboard=True
     )
     return kb
+
+def bank_menu_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="💸 Перевод", callback_data="transfer"))
+    builder.row(InlineKeyboardButton(text="💰 Вклад", callback_data="deposit_menu"))
+    builder.row(InlineKeyboardButton(text="💵 Кредит", callback_data="credit_menu"))
+    builder.row(InlineKeyboardButton(text="💕 Благотворительный фонд", callback_data="charity"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
+    return builder.as_markup()
 
 def casino_menu_keyboard():
     builder = InlineKeyboardBuilder()
@@ -92,13 +93,23 @@ def slots_bet_keyboard():
 def credit_menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Взять кредит", callback_data="take_credit"))
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
+    builder.row(InlineKeyboardButton(text="Погасить кредит", callback_data="repay_credit"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="bank_menu"))
+    return builder.as_markup()
+
+def credit_term_keyboard():
+    builder = InlineKeyboardBuilder()
+    for hours in [5, 10, 15, 20, 25]:
+        builder.button(text=f"{hours} часов", callback_data=f"credit_term_{hours}")
+    builder.adjust(2)
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="credit_menu"))
     return builder.as_markup()
 
 def deposit_menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Открыть вклад", callback_data="open_deposit"))
-    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
+    builder.row(InlineKeyboardButton(text="Закрыть вклад", callback_data="close_deposit"))
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="bank_menu"))
     return builder.as_markup()
 
 def shop_menu_keyboard():
