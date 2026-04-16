@@ -14,12 +14,16 @@ class User(Base):
     last_bonus = Column(DateTime(timezone=True), nullable=True)
     is_authorized = Column(Boolean, default=False)
     
-    credit_amount = Column(Float, default=0.0)
-    credit_due_date = Column(DateTime(timezone=True), nullable=True)
+    credit_amount = Column(Float, default=0.0)          # текущая сумма долга с процентами
+    credit_original = Column(Float, default=0.0)        # исходная сумма кредита
+    credit_term_hours = Column(Integer, default=0)      # срок в часах (5,10,15,20,25)
+    credit_start_date = Column(DateTime(timezone=True), nullable=True)
+    credit_due_date = Column(DateTime(timezone=True), nullable=True)  # когда нужно погасить
+    credit_overdue_notified = Column(Boolean, default=False)  # было ли уведомление о просрочке
     
     deposit_amount = Column(Float, default=0.0)
-    deposit_days = Column(Integer, default=0)
     deposit_start_date = Column(DateTime(timezone=True), nullable=True)
+    # убираем deposit_days, теперь процент начисляется каждый час
     
     rank = Column(String, default="Рядовой")
     medals = Column(Text, default="[]")
@@ -34,10 +38,11 @@ class User(Base):
     total_earned = Column(Float, default=0.0)
     total_donated = Column(Float, default=0.0)
     casino_bets_count = Column(Integer, default=0)
-    loans_taken = Column(Integer, default=0)
+    loans_taken = Column(Integer, default=0)       # количество взятых кредитов
     deposits_made = Column(Integer, default=0)
+    daily_bonus_count = Column(Integer, default=0) # счётчик ежедневных бонусов
     
-    photo_id = Column(String, nullable=True)  # file_id фото профиля
+    photo_id = Column(String, nullable=True)
     
     transactions = relationship("Transaction", back_populates="user")
     casino_games = relationship("CasinoGame", back_populates="user")
