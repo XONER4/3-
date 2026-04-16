@@ -25,10 +25,9 @@ RANK_REWARDS = {
     "Старший лейтенант": 640000
 }
 
-async def notify_user(telegram_id: int, text: str):
+async def notify_user(bot, telegram_id: int, text: str):
     """Отправляет уведомление пользователю в личные сообщения."""
     try:
-        from bot import bot
         await bot.send_message(telegram_id, text)
         logger.info(f"Уведомление отправлено пользователю {telegram_id}")
     except Exception as e:
