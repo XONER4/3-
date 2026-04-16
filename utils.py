@@ -22,6 +22,14 @@ RANK_REWARDS = {
     "Старший лейтенант": 640000
 }
 
+async def notify_user(telegram_id: int, text: str):
+    """Отправляет уведомление пользователю в личные сообщения."""
+    try:
+        from bot import bot
+        await bot.send_message(telegram_id, text)
+    except:
+        pass
+
 async def check_rank_upgrade(user: User, session: AsyncSession):
     """Проверяет и обновляет звание на основе total_earned"""
     total = user.total_earned
