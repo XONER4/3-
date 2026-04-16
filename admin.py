@@ -14,7 +14,6 @@ from handlers import (
     custom_buttons, ALL_MEDALS, back_to_main
 )
 from utils import notify_user, add_medal
-from bot import bot  # <-- импортируем bot глобально
 
 import asyncio
 from datetime import datetime, timedelta
@@ -97,6 +96,7 @@ async def admin_balance_amount(message: Message, state: FSMContext, session: Asy
         f"✅ Баланс пользователя {user.full_name} пополнен на {amount:,.0f} ₽.",
         reply_markup=admin_panel_keyboard()
     )
+    from bot import bot
     await notify_user(bot, target_id, f"💰 Администратор пополнил ваш баланс на {amount:,.0f} ₽.")
     await state.clear()
 
@@ -159,6 +159,7 @@ async def admin_rank_set(message: Message, state: FSMContext, session: AsyncSess
         f"✅ Звание пользователя {user.full_name} изменено с {old_rank} на {new_rank}.",
         reply_markup=admin_panel_keyboard()
     )
+    from bot import bot
     await notify_user(bot, target_id, f"🎖 Администратор изменил ваше звание с {old_rank} на {new_rank}!")
     await state.clear()
 
@@ -218,6 +219,7 @@ async def admin_medal_set(message: Message, state: FSMContext, session: AsyncSes
             f"✅ Медаль '{medal}' выдана пользователю {user.full_name}.",
             reply_markup=admin_panel_keyboard()
         )
+        from bot import bot
         await notify_user(bot, target_id, f"🎉 Администратор выдал вам медаль '{medal}'!")
     else:
         await message.answer(f"У пользователя уже есть медаль '{medal}'.")
@@ -273,6 +275,7 @@ async def admin_rename_set(message: Message, state: FSMContext, session: AsyncSe
         f"✅ Имя пользователя изменено с {old_name} на {new_name}.",
         reply_markup=admin_panel_keyboard()
     )
+    from bot import bot
     await notify_user(bot, target_id, f"✏️ Администратор изменил ваше имя с {old_name} на {new_name}.")
     await state.clear()
 
@@ -333,6 +336,7 @@ async def broadcast_send(message: Message, state: FSMContext, session: AsyncSess
         return
     
     status_msg = await message.answer(f"📢 Рассылка начата (0/{total})...")
+    from bot import bot
     count = 0
     for uid in users:
         try:
@@ -387,6 +391,7 @@ async def custom_button_callback(message: Message, state: FSMContext):
     cb_data = f"custom_{len(custom_buttons)}"
     custom_buttons[cb_data] = msg_text
     
+    from bot import bot
     builder = InlineKeyboardBuilder()
     builder.button(text=text, callback_data=cb_data)
     await bot.send_message(
