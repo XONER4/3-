@@ -1280,20 +1280,24 @@ async def photo_uploaded(message: Message, state: FSMContext, session: AsyncSess
 # ---------- Новости ----------
 @router.callback_query(F.data == "news")
 async def news(callback: CallbackQuery, session: AsyncSession):
+    # Получаем последние 10 транзакций
     result = await session.execute(
-        select(Transaction).options(selectinload(Transaction.user)).order_by(desc(Transaction.timestamp)).limit(10)
+        select(Transaction).order_by(desc(Transaction.timestamp)).limit(10)
     )
     trans = result.scalars().all()
     
     text = "📰 Последние события (МСК):\n"
     for t in trans:
         local_time = t.timestamp + timedelta(hours=TIMEZONE_OFFSET)
-        # Анонимизация благотворительности
+        
+        # Определяем имя пользователя
         if t.type in ("charity", "charity_received"):
             user_name = "Аноним"
             desc = "Анонимное пожертвование"
         else:
-            user_name = t.user.full_name if t.user else "Неизвестный"
+            # Загружаем пользователя вручную для надёжности
+            user = await get_user(t.user_id, session) if t.user_id else None
+            user_name = user.full_name if user else "Неизвестный"
             desc = t.description or t.type
         
         emoji = "🟢" if t.amount > 0 else "🔴"
