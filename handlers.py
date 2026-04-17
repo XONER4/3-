@@ -1137,7 +1137,7 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     )
     await send_news_to_channel(message.bot, f"💸 {user.full_name} ПЕРЕВЁЛ {format_balance(amount)} ₽ ПОЛЬЗОВАТЕЛЮ {recip_name}")
     await state.clear()
-    # ---------- Магазин (новый) ----------
+    # ---------- Магазин ----------
 @router.callback_query(F.data == "shop_menu")
 async def shop_menu(callback: CallbackQuery):
     await callback.message.edit_text("🛍️✨ ДОБРО ПОЖАЛОВАТЬ В МАГАЗИН! ✨🛍️\nВЫБЕРИТЕ ТОВАР:", reply_markup=shop_menu_keyboard())
@@ -1147,7 +1147,7 @@ async def shop_menu(callback: CallbackQuery):
 async def shop_item_view(callback: CallbackQuery, state: FSMContext):
     item_id = int(callback.data.split("_")[2]) - 1
     item = SHOP_ITEMS[item_id]
-    can_gift = True  # Теперь любой товар можно подарить
+    can_gift = True
     await state.update_data(shop_item=item, shop_item_id=item_id)
     await callback.message.edit_text(
         f"{item['name']}\n💰 ЦЕНА: {format_balance(item['price'])} ₽\n\n📝 {item['description']}",
@@ -1182,7 +1182,6 @@ async def buy_item(callback: CallbackQuery, state: FSMContext, session: AsyncSes
         if added:
             await notify_user(callback.bot, user.telegram_id, "🎉 ПОЗДРАВЛЯЕМ! ВЫ ПОЛУЧИЛИ МЕДАЛЬ '💜PREMIUM КЛИЕНТ💜' И 5 000 ₽!")
             await send_news_to_channel(callback.bot, f"🏅 {user.full_name} ПОЛУЧИЛ МЕДАЛЬ '💜PREMIUM КЛИЕНТ💜'")
-        # Уведомление о повышении звания
         if old_rank != user.rank:
             await notify_user(callback.bot, user.telegram_id, f"🎉 ПОЗДРАВЛЯЕМ! ВАШЕ ЗВАНИЕ ПОВЫШЕНО С {old_rank} ДО {user.rank}!")
             await send_news_to_channel(callback.bot, f"🎉 {user.full_name} ПОВЫШЕН ДО {user.rank} (VIP)")
@@ -1244,7 +1243,6 @@ async def gift_item_finish(message: Message, state: FSMContext, session: AsyncSe
         if added:
             await notify_user(message.bot, recip.telegram_id, "🎉 ПОЗДРАВЛЯЕМ! ВЫ ПОЛУЧИЛИ МЕДАЛЬ '💜PREMIUM КЛИЕНТ💜' И 5 000 ₽ В ПОДАРОК!")
             await send_news_to_channel(message.bot, f"🏅 {recip.full_name} ПОЛУЧИЛ МЕДАЛЬ '💜PREMIUM КЛИЕНТ💜' В ПОДАРОК")
-        # Уведомление о повышении звания
         if old_rank != recip.rank:
             await notify_user(message.bot, recip.telegram_id, f"🎉 ПОЗДРАВЛЯЕМ! ВАШЕ ЗВАНИЕ ПОВЫШЕНО С {old_rank} ДО {recip.rank}!")
             await send_news_to_channel(message.bot, f"🎉 {recip.full_name} ПОВЫШЕН ДО {recip.rank} (VIP ПОДАРОК)")
@@ -1418,7 +1416,7 @@ async def profile_medals(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard("profile"))
     await callback.answer()
 
-# ---------- Благотворительность (анонимная) ----------
+# ---------- Благотворительность ----------
 @router.callback_query(F.data == "charity")
 async def charity_menu(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -1627,8 +1625,10 @@ async def physical_work_brick(callback: CallbackQuery, session: AsyncSession):
     user.work_physical_earned += 57
     await session.commit()
     await add_transaction(session, user.id, 57, "work_physical", "ФИЗИЧЕСКИЙ ТРУД: КИРПИЧ")
+    # Обновляем активность для фоновой задачи
+    from bot import update_work_activity
+    update_work_activity(user.telegram_id, 57, "physical")
     await callback.answer("+57 ₽! КИРПИЧ УЛОЖЕН.", show_alert=False)
-    # Обновляем сообщение с текущим балансом
     await callback.message.edit_text(
         f"🔨✨ ФИЗИЧЕСКИЙ ТРУД — СТРОЙКА ДОМА ✨🔨\n"
         f"💰 БАЛАНС: {format_balance(user.balance)} ₽\n"
@@ -1679,8 +1679,10 @@ async def mental_work_answer(message: Message, state: FSMContext, session: Async
         earned += 3112
         await add_transaction(session, user.id, 3112, "work_mental", "УМСТВЕННЫЙ ТРУД: ПРАВИЛЬНЫЙ ОТВЕТ")
         await session.commit()
+        # Обновляем активность
+        from bot import update_work_activity
+        update_work_activity(user.telegram_id, 3112, "mental")
     
-    # Генерируем следующую задачу
     new_task = get_random_mental_task()
     await state.update_data(mental_task=new_task, mental_earned=earned)
     
@@ -1692,9 +1694,6 @@ async def mental_work_answer(message: Message, state: FSMContext, session: Async
         f"ВВЕДИТЕ ВАШ ОТВЕТ:",
         reply_markup=mental_work_keyboard()
     )
-    # Отправляем новость о заработке, если пользователь не активен 5 минут (будет в фоновой задаче, пока просто сумма)
-    if earned > 0:
-        await send_news_to_channel(message.bot, f"🧠 {user.full_name} ЗАРАБОТАЛ {format_balance(earned)} ₽ НА УМСТВЕННОМ ТРУДЕ")
 
 @router.callback_query(StateFilter(MentalWorkState.answering), F.data == "mental_next_task")
 async def mental_next_task(callback: CallbackQuery, state: FSMContext):
