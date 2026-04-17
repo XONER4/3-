@@ -8,16 +8,17 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     telegram_id = Column(Integer, unique=True, index=True)
-    full_name = Column(String, default="Не указано", unique=True)  # уникальное имя
+    full_name = Column(String, default="Не указано", unique=True)
     balance = Column(Float, default=15000.0)
     registered_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_bonus = Column(DateTime(timezone=True), nullable=True)
+    last_bonus = Column(DateTime(timezone=True), nullable=True)  # теперь ежечасный бонус
     is_authorized = Column(Boolean, default=False)
-    channel_subscribed = Column(Boolean, default=False)  # подписка на канал
+    channel_subscribed = Column(Boolean, default=False)
+    is_banned = Column(Boolean, default=False)  # блокировка пользователя
     
-    credit_amount = Column(Float, default=0.0)          # текущая сумма долга с процентами
-    credit_original = Column(Float, default=0.0)        # исходная сумма кредита
-    credit_term_hours = Column(Integer, default=0)      # срок в часах (5,10,15,20,25)
+    credit_amount = Column(Float, default=0.0)
+    credit_original = Column(Float, default=0.0)
+    credit_term_hours = Column(Integer, default=0)
     credit_start_date = Column(DateTime(timezone=True), nullable=True)
     credit_due_date = Column(DateTime(timezone=True), nullable=True)
     credit_overdue_notified = Column(Boolean, default=False)
@@ -26,7 +27,7 @@ class User(Base):
     deposit_start_date = Column(DateTime(timezone=True), nullable=True)
     
     rank = Column(String, default="Рядовой")
-    rank_manual = Column(Boolean, default=False)  # если звание выдано админом, не понижать автоматически
+    rank_manual = Column(Boolean, default=False)
     medals = Column(Text, default="[]")
     
     max_balance_achieved = Column(Float, default=15000.0)
@@ -41,13 +42,17 @@ class User(Base):
     casino_bets_count = Column(Integer, default=0)
     loans_taken = Column(Integer, default=0)
     deposits_made = Column(Integer, default=0)
-    daily_bonus_count = Column(Integer, default=0)
+    hourly_bonus_count = Column(Integer, default=0)  # счётчик ежечасных бонусов
     
     photo_id = Column(String, nullable=True)
     
-    referrer_id = Column(Integer, nullable=True)   # кто пригласил
-    invited_count = Column(Integer, default=0)     # сколько пригласил
-    is_vip = Column(Boolean, default=False)        # куплен PREMIUM
+    referrer_id = Column(Integer, nullable=True)
+    invited_count = Column(Integer, default=0)
+    is_vip = Column(Boolean, default=False)
+    
+    # Заработок по видам работы (для рейтинга)
+    work_physical_earned = Column(Float, default=0.0)
+    work_mental_earned = Column(Float, default=0.0)
     
     transactions = relationship("Transaction", back_populates="user")
     casino_games = relationship("CasinoGame", back_populates="user")
