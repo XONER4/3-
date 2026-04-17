@@ -23,7 +23,8 @@ from utils import (
     check_rank_upgrade, add_medal, calculate_deposit_payout,
     calculate_credit_debt, get_rank_conditions, get_medals_info,
     RANK_BONUS_MULTIPLIER, notify_user, RANK_REWARDS, generate_referral_link,
-    get_random_mental_task, check_mental_answer, get_work_rating
+    get_random_mental_task, check_mental_answer, get_work_rating,
+    send_news_to_channel  # <-- теперь импортируется из utils
 )
 
 router = Router()
@@ -138,12 +139,6 @@ def format_balance(amount: float) -> str:
 
 def get_current_date() -> str:
     return datetime.now().strftime("%d.%m.%Y")
-
-async def send_news_to_channel(bot: Bot, text: str):
-    try:
-        await bot.send_message(NEWS_CHANNEL_ID, f"📰 {text}")
-    except Exception as e:
-        logging.error(f"Не удалось отправить новость в канал: {e}")
 
 # ---------- IQ вопросы ----------
 IQ_QUESTIONS = [
