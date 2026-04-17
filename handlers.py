@@ -1272,3 +1272,318 @@ async def send_news_to_channel(bot: Bot, text: str):
         await bot.send_message(NEWS_CHANNEL_ID, f"📰 {text}")
     except Exception as e:
         logging.error(f"Не удалось отправить новость в канал: {e}")
+# ---------- Семья ----------
+@router.callback_query(F.data == "family")
+async def family_list(callback: CallbackQuery, session: AsyncSession):
+    result = await session.execute(
+        select(User).where(User.full_name != "Не указано")
+    )
+    users = result.scalars().all()
+    if not users:
+        await callback.answer("Нет зарегистрированных пользователей.", show_alert=True)
+        return
+    
+    text = "👨‍👩‍👧‍👦✨ Семья: ✨👨‍👩‍👧‍👦\n"
+    for u in users:
+        text += f"• {u.full_name} — {u.rank} (доход: {format_balance(u.total_earned)} ₽)\n"
+    
+    builder = InlineKeyboardBuilder()
+    for u in users:
+        builder.button(text=u.full_name, callback_data=f"family_profile_{u.telegram_id}")
+    builder.adjust(1)
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("family_profile_"))
+async def family_profile_main(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    if not user:
+        await callback.answer("Пользователь не найден.", show_alert=True)
+        return
+    
+    text = (
+        f"📋✨ Личное дело {user.full_name} ✨📋\n"
+        f"🆔 ID: {user.telegram_id}\n"
+        f"📅 В боте с: {user.registered_at.strftime('%d.%m.%Y')}"
+    )
+    if user.is_vip:
+        text = f"💜 VIP 💜\n{text}"
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 Баланс", callback_data=f"fam_balance_{user_id}")
+    builder.button(text="🏅 Звания", callback_data=f"fam_rank_{user_id}")
+    builder.button(text="🎁 Подарки", callback_data=f"fam_gifts_{user_id}")
+    builder.button(text="🏅 Медали", callback_data=f"fam_medals_{user_id}")
+    builder.adjust(2)
+    builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="family"))
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fam_balance_"))
+async def fam_balance(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    text = f"💰✨ Баланс {user.full_name}: {format_balance(user.balance)} ₽\n📈 Доход: {format_balance(user.total_earned)} ₽ ✨💰"
+    await callback.message.edit_text(text, reply_markup=back_keyboard(f"family_profile_{user_id}"))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fam_rank_"))
+async def fam_rank(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    text = f"🎖✨ Звание {user.full_name}: {user.rank} ✨🎖\n{get_rank_conditions()}"
+    await callback.message.edit_text(text, reply_markup=back_keyboard(f"family_profile_{user_id}"))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fam_gifts_"))
+async def fam_gifts(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    purchases = json.loads(user.purchases) if user.purchases else []
+    if purchases:
+        text = f"🎁✨ Подарки/покупки {user.full_name}: ✨🎁\n"
+        for p in purchases:
+            text += f"• {p.get('name', 'Товар')}"
+            if p.get('gift_from'):
+                text += f" (от {p['gift_from']})"
+            text += "\n"
+    else:
+        text = "У пользователя пока нет подарков."
+    await callback.message.edit_text(text, reply_markup=back_keyboard(f"family_profile_{user_id}"))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("fam_medals_"))
+async def fam_medals(callback: CallbackQuery, session: AsyncSession):
+    user_id = int(callback.data.split("_")[2])
+    user = await get_user(user_id, session)
+    medals = json.loads(user.medals) if user.medals else []
+    text = f"🏅✨ Медали {user.full_name}: ✨🏅\n" + "\n".join(medals) if medals else "Нет медалей."
+    await callback.message.edit_text(text, reply_markup=back_keyboard(f"family_profile_{user_id}"))
+    await callback.answer()
+
+# ---------- Личное дело ----------
+@router.callback_query(F.data == "profile")
+async def profile_main(callback: CallbackQuery, session: AsyncSession):
+    user = await get_user(callback.from_user.id, session)
+    text = (
+        f"📋✨ Личное дело {user.full_name} ✨📋\n"
+        f"📅 Дата регистрации: {user.registered_at.strftime('%d.%m.%Y')}\n"
+        f"💰 Баланс: {format_balance(user.balance)} ₽\n"
+        f"📈 Общий доход: {format_balance(user.total_earned)} ₽"
+    )
+    if user.is_vip:
+        text = f"💜 VIP 💜\n{text}"
+    await callback.message.edit_text(text, reply_markup=profile_sections_keyboard())
+    await callback.answer()
+
+@router.callback_query(F.data == "profile_ranks")
+async def profile_ranks(callback: CallbackQuery, session: AsyncSession):
+    user = await get_user(callback.from_user.id, session)
+    text = f"🎖✨ Ваше звание: {user.rank} ✨🎖\n" + get_rank_conditions()
+    await callback.message.edit_text(text, reply_markup=back_keyboard("profile"))
+    await callback.answer()
+
+@router.callback_query(F.data == "profile_gifts")
+async def profile_gifts(callback: CallbackQuery, session: AsyncSession):
+    user = await get_user(callback.from_user.id, session)
+    purchases = json.loads(user.purchases) if user.purchases else []
+    if purchases:
+        text = "🎁✨ Ваши подарки/покупки: ✨🎁\n"
+        for p in purchases:
+            text += f"• {p.get('name', 'Товар')}"
+            if p.get('gift_from'):
+                text += f" (от {p['gift_from']})"
+            text += f"\n{p.get('message', '')}\n\n"
+    else:
+        text = "У вас пока нет подарков."
+    await callback.message.edit_text(text, reply_markup=back_keyboard("profile"))
+    await callback.answer()
+
+@router.callback_query(F.data == "profile_medals")
+async def profile_medals(callback: CallbackQuery, session: AsyncSession):
+    user = await get_user(callback.from_user.id, session)
+    medals = json.loads(user.medals) if user.medals else []
+    text = "🏅✨ Ваши медали: ✨🏅\n" + "\n".join(medals) if medals else "У вас пока нет медалей."
+    await callback.message.edit_text(text, reply_markup=back_keyboard("profile"))
+    await callback.answer()
+
+@router.callback_query(F.data == "profile_upload_photo")
+async def profile_upload_photo(callback: CallbackQuery, state: FSMContext):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔙 Назад", callback_data="profile")
+    await callback.message.edit_text(
+        "📸✨ Отправьте фотографию для профиля или нажмите 'Назад' для отмены: ✨📸",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(PhotoUploadState.waiting_for_photo)
+    await callback.answer()
+
+@router.callback_query(StateFilter(PhotoUploadState.waiting_for_photo), F.data == "profile")
+async def back_from_photo_upload(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    await profile_main(callback, session)
+
+@router.message(StateFilter(PhotoUploadState.waiting_for_photo), F.photo)
+async def photo_uploaded(message: Message, state: FSMContext, session: AsyncSession):
+    user = await get_user(message.from_user.id, session)
+    user.photo_id = message.photo[-1].file_id
+    await session.commit()
+    await message.answer("✅✨ Фото профиля обновлено! ✨✅", reply_markup=main_menu())
+    await state.clear()
+
+# ---------- Благотворительность (анонимная) ----------
+@router.callback_query(F.data == "charity")
+async def charity_menu(callback: CallbackQuery, session: AsyncSession):
+    result = await session.execute(
+        select(User).where(User.full_name != "Не указано").order_by(User.balance).limit(1)
+    )
+    poorest = result.scalar_one_or_none()
+    if not poorest:
+        await callback.answer("Нет пользователей для помощи.", show_alert=True)
+        return
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 Пожертвовать", callback_data="charity_donate")
+    builder.button(text="🏆 Рейтинг щедрых", callback_data="charity_rating")
+    builder.button(text="🔙 Назад", callback_data="bank_menu")
+    await callback.message.edit_text(
+        f"💕✨ Благотворительный фонд ✨💕\n\n"
+        f"Ваше пожертвование будет полностью анонимным. Никто не узнает, кто отправил и кто получил помощь.",
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "charity_donate")
+async def charity_donate_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("💕 Введите сумму пожертвования:", reply_markup=back_keyboard("charity"))
+    await state.set_state(CharityState.waiting_for_amount)
+    await callback.answer()
+
+@router.callback_query(StateFilter(CharityState.waiting_for_amount), F.data == "charity")
+async def back_from_charity_amount(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    await charity_menu(callback, session)
+
+@router.message(StateFilter(CharityState.waiting_for_amount), F.text)
+async def charity_donate_amount(message: Message, state: FSMContext, session: AsyncSession):
+    try:
+        amount = float(message.text)
+    except ValueError:
+        await message.answer("Введите число.")
+        return
+    
+    user = await get_user(message.from_user.id, session)
+    if amount <= 0 or amount > user.balance:
+        await message.answer("Недостаточно средств или некорректная сумма.")
+        return
+    
+    result = await session.execute(
+        select(User).where(User.full_name != "Не указано").order_by(User.balance).limit(1)
+    )
+    poorest = result.scalar_one_or_none()
+    if not poorest:
+        await message.answer("Ошибка: не найден получатель.")
+        return
+    
+    user.balance -= amount
+    poorest.balance += amount
+    poorest.total_earned += amount
+    user.total_donated += amount
+    await session.commit()
+    await add_transaction(session, user.id, -amount, "charity", "Анонимное пожертвование в фонд")
+    await add_transaction(session, poorest.id, amount, "charity_received", "Получена анонимная помощь из фонда")
+    
+    if user.total_donated >= 20000:
+        added = await add_medal(user, "🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️", session, give_bonus=True)
+        if added:
+            await notify_user(message.bot, user.telegram_id, "🎉 Вы получили медаль '🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️' и 5 000 ₽!")
+    
+    await notify_user(
+        message.bot,
+        poorest.telegram_id,
+        f"💰✨ Вам поступило анонимное пожертвование {format_balance(amount)} ₽ из благотворительного фонда! ✨💰\n"
+        f"Ваш текущий баланс: {format_balance(poorest.balance)} ₽"
+    )
+    
+    await message.answer(
+        f"✅✨ Вы анонимно пожертвовали {format_balance(amount)} ₽ нуждающемуся члену семьи. ✨✅",
+        reply_markup=main_menu()
+    )
+    await send_news_to_channel(message.bot, f"💕 Анонимное пожертвование {format_balance(amount)} ₽ в фонд")
+    await state.clear()
+
+@router.callback_query(F.data == "charity_rating")
+async def charity_rating(callback: CallbackQuery, session: AsyncSession):
+    result = await session.execute(
+        select(User.full_name, User.total_donated)
+        .where(User.total_donated > 0)
+        .order_by(desc(User.total_donated))
+        .limit(10)
+    )
+    rating = result.all()
+    text = "🏆✨ Рейтинг благотворителей (анонимный для получателей): ✨🏆\n"
+    for i, row in enumerate(rating, 1):
+        text += f"{i}. {row[0]} — {format_balance(row[1])} ₽\n"
+    await callback.message.edit_text(text, reply_markup=back_keyboard("charity"))
+    await callback.answer()
+
+# ---------- Медали ----------
+@router.callback_query(F.data == "medals_info")
+async def medals_info(callback: CallbackQuery):
+    text = (
+        "🏅✨ Все медали: ✨🏅\n"
+        "• ✅15 из 15 IQ✅ — 15/15 в тесте IQ\n"
+        "• 💚ХОРОШИСТ IQ💚 — 9-14 правильных\n"
+        "• 😊СЛАБАК IQ😊 — 5-8 правильных\n"
+        "• ❌ВСЕ ПЛОХО IQ❌ — меньше 5 правильных\n"
+        "• 😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍 — перевел от 50.000 ₽\n"
+        "• 🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁 — отправил 5+ подарков\n"
+        "• 🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️ — пожертвовал от 20.000 ₽\n"
+        "• 🎰ЛУДОМАН🎰 — 30+ ставок в казино\n"
+        "• 🔴ДОЛЖНИК🔴 — просрочил кредит\n"
+        "• ❌ЛЮБИТЕЛЬ КРЕДИТОВ❌ — взял более 2 кредитов\n"
+        "• ❇️БОНУС❇️ — получил 10+ ежедневных бонусов\n"
+        "• 🤑🤑ВКЛАДЧИК🤑🤑 — открыл более 2 вкладов\n"
+        "• 💜PREMIUM КЛИЕНТ💜 — приобрёл СЕМЬЯ PREMIUM\n"
+        "• 🤝 РЕФЕРЕР 🤝 — пригласил друга\n"
+        "💰 За каждую медаль вы получаете 5 000 ₽!"
+    )
+    await callback.message.edit_text(text, reply_markup=back_keyboard("back_to_main"))
+    await callback.answer()
+
+# ---------- Помощь ----------
+@router.callback_query(F.data == "help")
+async def help_cmd(callback: CallbackQuery):
+    text = (
+        "❓✨ Помощь: ✨❓\n"
+        "• СберБанк — баланс, переводы, вклады (20%/час), кредиты (30%/5ч), благотворительность\n"
+        "• Казино — кубик (x6) и слоты (x3, x7)\n"
+        "• Тест IQ — 15 вопросов, награды\n"
+        "• Магазин — полезные товары и PREMIUM статус\n"
+        "• Купленные товары — просмотр ваших покупок\n"
+        "• Личное дело — статистика, звания, медали, фото, реферальная ссылка\n"
+        "• Новости — подпишитесь на наш канал (кнопка ведёт в канал)\n"
+        "• Семья — профили всех игроков\n"
+        "• Ежедневный бонус — растёт с званием\n"
+        "• Приглашайте друзей и получайте 25 000 ₽ за каждого!"
+    )
+    await callback.message.edit_text(text, reply_markup=back_keyboard("back_to_main"))
+    await callback.answer()
+
+# ---------- Обработчик неизвестных callback ----------
+@router.callback_query()
+async def unknown_callback(callback: CallbackQuery):
+    await callback.answer("Действие не распознано", show_alert=True)
+
+# ---------- Обработчик неизвестных сообщений ----------
+@router.message()
+async def unknown_message(message: Message):
+    user = await get_user(message.from_user.id, next(get_db()))
+    name = user.full_name if user else "пользователь"
+    await message.answer(
+        f"😐 Я ВАС НЕ ПОНИМАЮ 😐\n"
+        f"{name}, вы делаете что-то не так, нажмите команду /start для перезапуска вашего бота."
+    )
