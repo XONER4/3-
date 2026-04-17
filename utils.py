@@ -1,7 +1,6 @@
 import json
 import logging
 import random
-import operator
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from models import User
@@ -18,7 +17,6 @@ RANK_BONUS_MULTIPLIER = {
     "СТАРШИЙ ЛЕЙТЕНАНТ": 64
 }
 
-# Награды за звания (база 15 000, удвоение)
 RANK_REWARDS = {
     "ЕФРЕЙТОР": 15000,
     "МЛАДШИЙ СЕРЖАНТ": 30000,
@@ -28,8 +26,15 @@ RANK_REWARDS = {
     "СТАРШИЙ ЛЕЙТЕНАНТ": 480000
 }
 
-# Список всех званий в порядке возрастания
 RANKS = ["РЯДОВОЙ", "ЕФРЕЙТОР", "МЛАДШИЙ СЕРЖАНТ", "СЕРЖАНТ", "СТАРШИЙ СЕРЖАНТ", "ЛЕЙТЕНАНТ", "СТАРШИЙ ЛЕЙТЕНАНТ"]
+
+async def send_news_to_channel(bot, text: str):
+    """Отправляет новость в канал новостей."""
+    try:
+        from config import NEWS_CHANNEL_ID
+        await bot.send_message(NEWS_CHANNEL_ID, f"📰 {text}")
+    except Exception as e:
+        logger.error(f"Не удалось отправить новость в канал: {e}")
 
 async def notify_user(bot, telegram_id: int, text: str):
     try:
@@ -39,7 +44,6 @@ async def notify_user(bot, telegram_id: int, text: str):
         logger.error(f"Не удалось отправить уведомление пользователю {telegram_id}: {e}")
 
 async def check_rank_upgrade(user: User, session: AsyncSession):
-    """Проверяет и обновляет звание на основе total_earned. Если rank_manual=True, не понижаем."""
     if user.rank_manual:
         return None
     total = user.total_earned
@@ -127,10 +131,8 @@ def generate_referral_link(user_id: int) -> str:
     from config import BOT_USERNAME
     return f"https://t.me/{BOT_USERNAME}?start={user_id}"
 
-# ---------- УМСТВЕННЫЙ ТРУД: ГЕНЕРАТОР ЗАДАЧ ----------
-# 50+ задач (математика, логика)
+# ---------- УМСТВЕННЫЙ ТРУД ----------
 MENTAL_TASKS = [
-    # Простые арифметические примеры
     {"q": "2 + 2 * 2 = ?", "a": 6, "hint": "Сначала умножение: 2*2=4, затем 2+4=6"},
     {"q": "5 * (3 + 4) = ?", "a": 35, "hint": "Скобки: 3+4=7, затем 5*7=35"},
     {"q": "12 / 3 + 5 = ?", "a": 9, "hint": "Деление: 12/3=4, затем 4+5=9"},
@@ -141,7 +143,6 @@ MENTAL_TASKS = [
     {"q": "Сколько будет 15% от 200?", "a": 30, "hint": "200 * 0.15 = 30"},
     {"q": "Если 3x + 5 = 20, то x = ?", "a": 5, "hint": "3x = 15, x = 5"},
     {"q": "Чему равна сумма углов треугольника?", "a": 180, "hint": "Сумма углов треугольника всегда 180°"},
-    # Логические загадки
     {"q": "У отца Мэри 5 дочерей: Чача, Чече, Чичи, Чочо. Как зовут пятую дочь?", "a": "МЭРИ", "hint": "Вопрос начинается с 'У отца Мэри' — значит, пятая дочь Мэри."},
     {"q": "Что можно удерживать, не прикасаясь к нему?", "a": "ОБЕЩАНИЕ", "hint": "Обещание держат словом."},
     {"q": "Что идёт вверх и вниз, но не движется?", "a": "ЛЕСТНИЦА", "hint": "Лестница стоит на месте, но по ней поднимаются и спускаются."},
@@ -152,7 +153,6 @@ MENTAL_TASKS = [
     {"q": "Сколько месяцев в году имеют 28 дней?", "a": 12, "hint": "Во всех месяцах есть 28-й день."},
     {"q": "Если вы участвуете в гонке и обгоняете второго, на каком вы месте?", "a": 2, "hint": "Вы становитесь вторым."},
     {"q": "Что не имеет длины, ширины, высоты, но может быть измерено?", "a": "ВРЕМЯ", "hint": "Время измеряется секундами, минутами."},
-    # Добавлю ещё 30 задач позже, пока 20 для примера. В полной версии будет 50+
     {"q": "Сколько будет 10 + 10 * 0?", "a": 10, "hint": "Сначала умножение: 10*0=0, затем 10+0=10."},
     {"q": "Сколько ног у трёх кошек?", "a": 12, "hint": "У одной кошки 4 ноги, 3*4=12."},
     {"q": "Продолжите ряд: 2, 4, 8, 16, ...", "a": 32, "hint": "Каждое следующее число умножается на 2."},
@@ -187,15 +187,12 @@ MENTAL_TASKS = [
 ]
 
 def get_random_mental_task():
-    """Возвращает случайную задачу из списка."""
     return random.choice(MENTAL_TASKS)
 
 def check_mental_answer(task: dict, user_answer: str) -> tuple[bool, str]:
-    """Проверяет ответ пользователя. Возвращает (правильно ли, сообщение с объяснением)."""
     correct = task["a"]
     hint = task["hint"]
     try:
-        # Приводим к строке и сравниваем без учёта регистра и пробелов
         user_clean = user_answer.strip().upper()
         correct_str = str(correct).upper()
         if user_clean == correct_str:
@@ -205,9 +202,7 @@ def check_mental_answer(task: dict, user_answer: str) -> tuple[bool, str]:
     except:
         return False, f"❌ ОШИБКА ОБРАБОТКИ ОТВЕТА. ПРАВИЛЬНЫЙ ОТВЕТ: {correct}\nОБЪЯСНЕНИЕ: {hint}"
 
-# ---------- РЕЙТИНГИ ПО РАБОТЕ ----------
 async def get_work_rating(session: AsyncSession, work_type: str, limit: int = 10):
-    """Возвращает топ пользователей по заработку в указанном типе работы ('physical' или 'mental')."""
     if work_type == "physical":
         field = User.work_physical_earned
     else:
