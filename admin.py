@@ -6,12 +6,12 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import ADMIN_ID, BOT_PASSWORD, MAIN_MENU_TEXT, TIMEZONE_OFFSET
+from config import ADMIN_ID, BOT_PASSWORD, MAIN_MENU_TEXT, TIMEZONE_OFFSET, NEWS_CHANNEL_ID
 from models import User
 from keyboards import admin_panel_keyboard, back_keyboard
 from handlers import (
     AdminState, BroadcastState, get_user, get_user_by_name,
-    custom_buttons, ALL_MEDALS, back_to_main
+    custom_buttons, ALL_MEDALS, back_to_main, send_news_to_channel
 )
 from utils import notify_user, add_medal
 
@@ -34,7 +34,7 @@ async def admin_panel(message: Message):
         return
     await message.answer("🔧 Админ-панель", reply_markup=admin_panel_keyboard())
 
-# ---------- Кнопка "Назад" в админ-панель (из любых мест) ----------
+# ---------- Кнопка "Назад" в админ-панель ----------
 @admin_router.callback_query(F.data == "admin")
 async def admin_back(callback: CallbackQuery, state: FSMContext):
     await back_to_admin_panel(callback, state)
@@ -97,6 +97,7 @@ async def admin_balance_amount(message: Message, state: FSMContext, session: Asy
         reply_markup=admin_panel_keyboard()
     )
     await notify_user(message.bot, target_id, f"💰 Администратор пополнил ваш баланс на {amount:,.0f} ₽.")
+    await send_news_to_channel(message.bot, f"🔧 Админ пополнил баланс {user.full_name} на {amount:,.0f} ₽")
     await state.clear()
 
 # --- Установка звания (по имени) ---
@@ -153,12 +154,14 @@ async def admin_rank_set(message: Message, state: FSMContext, session: AsyncSess
     
     old_rank = user.rank
     user.rank = new_rank
+    user.rank_manual = True  # чтобы не понижалось автоматически
     await session.commit()
     await message.answer(
         f"✅ Звание пользователя {user.full_name} изменено с {old_rank} на {new_rank}.",
         reply_markup=admin_panel_keyboard()
     )
     await notify_user(message.bot, target_id, f"🎖 Администратор изменил ваше звание с {old_rank} на {new_rank}!")
+    await send_news_to_channel(message.bot, f"🔧 Админ изменил звание {user.full_name} с {old_rank} на {new_rank}")
     await state.clear()
 
 # --- Выдача медали (по имени) ---
@@ -211,13 +214,14 @@ async def admin_medal_set(message: Message, state: FSMContext, session: AsyncSes
         await state.clear()
         return
     
-    added = await add_medal(user, medal, session)
+    added = await add_medal(user, medal, session, give_bonus=True)
     if added:
         await message.answer(
-            f"✅ Медаль '{medal}' выдана пользователю {user.full_name}.",
+            f"✅ Медаль '{medal}' выдана пользователю {user.full_name} (начислено 5 000 ₽).",
             reply_markup=admin_panel_keyboard()
         )
-        await notify_user(message.bot, target_id, f"🎉 Администратор выдал вам медаль '{medal}'!")
+        await notify_user(message.bot, target_id, f"🎉 Администратор выдал вам медаль '{medal}' и 5 000 ₽!")
+        await send_news_to_channel(message.bot, f"🏅 Админ выдал медаль '{medal}' пользователю {user.full_name}")
     else:
         await message.answer(f"У пользователя уже есть медаль '{medal}'.")
     await state.clear()
@@ -266,6 +270,11 @@ async def admin_rename_set(message: Message, state: FSMContext, session: AsyncSe
         return
     old_name = user.full_name
     new_name = message.text.strip()
+    # Проверка уникальности
+    existing = await get_user_by_name(new_name, session)
+    if existing and existing.telegram_id != target_id:
+        await message.answer("❌ Это имя уже занято. Введите другое.")
+        return
     user.full_name = new_name
     await session.commit()
     await message.answer(
@@ -273,6 +282,7 @@ async def admin_rename_set(message: Message, state: FSMContext, session: AsyncSe
         reply_markup=admin_panel_keyboard()
     )
     await notify_user(message.bot, target_id, f"✏️ Администратор изменил ваше имя с {old_name} на {new_name}.")
+    await send_news_to_channel(message.bot, f"✏️ Админ изменил имя {old_name} на {new_name}")
     await state.clear()
 
 # --- Смена пароля ---
@@ -349,7 +359,7 @@ async def broadcast_send(message: Message, state: FSMContext, session: AsyncSess
     )
     await state.clear()
 
-# --- Кастомная кнопка (автоматический callback) ---
+# --- Кастомная кнопка ---
 @admin_router.callback_query(F.data == "admin_custom_button")
 async def admin_custom_button(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
@@ -440,9 +450,10 @@ async def admin_stats(callback: CallbackQuery, session: AsyncSession):
     total_balance = await session.scalar(select(func.sum(User.balance)))
     total_credits = await session.scalar(select(func.sum(User.credit_amount)))
     total_deposits = await session.scalar(select(func.sum(User.deposit_amount)))
+    vip_count = await session.scalar(select(func.count()).where(User.is_vip == True))
     await callback.message.edit_text(
         f"📊 Статистика:\n"
-        f"👥 Пользователей: {total_users}\n"
+        f"👥 Пользователей: {total_users} (VIP: {vip_count})\n"
         f"💰 Общий баланс: {total_balance:,.0f} ₽\n"
         f"💵 Сумма кредитов: {total_credits or 0:,.0f} ₽\n"
         f"🏦 Сумма вкладов: {total_deposits or 0:,.0f} ₽",
@@ -461,10 +472,11 @@ async def admin_users(callback: CallbackQuery, session: AsyncSession):
     for u in users:
         credit_info = f"Кредит: {u.credit_amount:,.0f} ₽" if u.credit_amount > 0 else ""
         deposit_info = f"Вклад: {u.deposit_amount:,.0f} ₽" if u.deposit_amount > 0 else ""
+        vip_mark = " 💜VIP" if u.is_vip else ""
         extra = " | ".join(filter(None, [credit_info, deposit_info]))
-        text += f"{u.full_name} (ID: {u.telegram_id}) — {u.balance:,.0f} ₽, {u.rank}"
+        text += f"{u.full_name}{vip_mark} (ID: {u.telegram_id}) — {u.balance:,.0f} ₽, {u.rank}"
         if extra:
             text += f" | {extra}"
         text += "\n"
     await callback.message.edit_text(text, reply_markup=back_keyboard("admin"))
-    await callback.answer() 
+    await callback.answer()
