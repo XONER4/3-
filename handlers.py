@@ -124,6 +124,7 @@ async def update_balance(user: User, amount: float, session: AsyncSession, type_
                 if reward > 0:
                     msg += f"💰 Вы получили награду {reward:,.0f} ₽!"
                 await bot.send_message(user.telegram_id, msg)
+                await send_news_to_channel(bot, f"🎉 {user.full_name} повышен до звания {new} и получил {reward:,.0f} ₽")
             except:
                 pass
 
@@ -132,6 +133,12 @@ def format_balance(amount: float) -> str:
 
 def get_current_date() -> str:
     return datetime.now().strftime("%d.%m.%Y")
+
+async def send_news_to_channel(bot: Bot, text: str):
+    try:
+        await bot.send_message(NEWS_CHANNEL_ID, f"📰 {text}")
+    except Exception as e:
+        logging.error(f"Не удалось отправить новость в канал: {e}")
 
 # ---------- IQ вопросы ----------
 IQ_QUESTIONS = [
@@ -289,6 +296,7 @@ async def check_subscription(callback: CallbackQuery, state: FSMContext, session
                     await add_transaction(session, referrer.id, 25000, "referral_bonus", f"Бонус за приглашение {user.full_name}")
                     await add_medal(referrer, "🤝 РЕФЕРЕР 🤝", session, give_bonus=True)
                     await notify_user(callback.bot, referrer.telegram_id, "🎉 Вы получили бонус 25 000 ₽ за приглашение друга!")
+                    await send_news_to_channel(callback.bot, f"🤝 {referrer.full_name} пригласил друга и получил 25 000 ₽")
                 await session.commit()
             await callback.message.edit_text("✅ Подписка подтверждена! Добро пожаловать в главное меню.")
             await back_to_main(callback, state, session)
@@ -361,6 +369,7 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
             await add_transaction(session, referrer.id, 25000, "referral_bonus", f"Бонус за приглашение {user.full_name}")
             await add_medal(referrer, "🤝 РЕФЕРЕР 🤝", session, give_bonus=True)
             await notify_user(message.bot, referrer.telegram_id, "🎉 Вы получили бонус 25 000 ₽ за приглашение друга!")
+            await send_news_to_channel(message.bot, f"🤝 {referrer.full_name} пригласил друга и получил 25 000 ₽")
         await session.commit()
 
 # ---------- Главное меню ----------
@@ -420,12 +429,14 @@ async def daily_bonus(callback: CallbackQuery, session: AsyncSession):
         added = await add_medal(user, "❇️БОНУС❇️", session, give_bonus=True)
         if added:
             await notify_user(callback.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '❇️БОНУС❇️' и 5 000 ₽!")
+            await send_news_to_channel(callback.bot, f"🏅 {user.full_name} получил медаль '❇️БОНУС❇️'")
     
     await callback.message.edit_text(
         f"🎁✨ Вы получили ежедневный бонус {format_balance(bonus)} ₽! ✨🎁\n"
         f"💰 Ваш новый баланс: {format_balance(user.balance)} ₽",
         reply_markup=back_keyboard("back_to_main")
     )
+    await send_news_to_channel(callback.bot, f"🎁 {user.full_name} получил ежедневный бонус {format_balance(bonus)} ₽")
     await callback.answer()
 
 # ---------- Казино ----------
@@ -514,6 +525,7 @@ async def dice_guess(callback: CallbackQuery, state: FSMContext, session: AsyncS
         added = await add_medal(user, "🎰ЛУДОМАН🎰", session, give_bonus=True)
         if added:
             await notify_user(callback.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '🎰ЛУДОМАН🎰' и 5 000 ₽!")
+            await send_news_to_channel(callback.bot, f"🏅 {user.full_name} получил медаль '🎰ЛУДОМАН🎰'")
     
     game = CasinoGame(
         user_id=user.id,
@@ -605,6 +617,7 @@ async def slots_spin(callback: CallbackQuery, state: FSMContext, session: AsyncS
         added = await add_medal(user, "🎰ЛУДОМАН🎰", session, give_bonus=True)
         if added:
             await notify_user(callback.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '🎰ЛУДОМАН🎰' и 5 000 ₽!")
+            await send_news_to_channel(callback.bot, f"🏅 {user.full_name} получил медаль '🎰ЛУДОМАН🎰'")
     
     game = CasinoGame(
         user_id=user.id,
@@ -651,7 +664,8 @@ async def custom_bet_input(message: Message, state: FSMContext):
             ).row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_slots")).as_markup()
         )
         await state.set_state(None)
-        # ---------- Тест IQ ----------
+
+# ---------- Тест IQ ----------
 @router.callback_query(F.data == "iq_test")
 async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
@@ -742,6 +756,7 @@ async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: li
         added = await add_medal(user, medal, session, give_bonus=True)
         if added:
             await notify_user(callback.bot, user.telegram_id, f"🎉 Поздравляем! Вы получили медаль '{medal}' и 5 000 ₽!")
+            await send_news_to_channel(callback.bot, f"🏅 {user.full_name} получил медаль '{medal}'")
     
     iq_result = IQResult(
         user_id=user.id,
@@ -860,6 +875,7 @@ async def credit_term_chosen(callback: CallbackQuery, state: FSMContext, session
         added = await add_medal(user, "❌ЛЮБИТЕЛЬ КРЕДИТОВ❌", session, give_bonus=True)
         if added:
             await notify_user(callback.bot, user.telegram_id, "🎉 Вы получили медаль '❌ЛЮБИТЕЛЬ КРЕДИТОВ❌' и 5 000 ₽!")
+            await send_news_to_channel(callback.bot, f"🏅 {user.full_name} получил медаль '❌ЛЮБИТЕЛЬ КРЕДИТОВ❌'")
     
     await callback.message.edit_text(
         f"✅ Кредит одобрен!\n"
@@ -989,6 +1005,7 @@ async def deposit_amount_input(message: Message, state: FSMContext, session: Asy
         added = await add_medal(user, "🤑🤑ВКЛАДЧИК🤑🤑", session, give_bonus=True)
         if added:
             await notify_user(message.bot, user.telegram_id, "🎉 Вы получили медаль '🤑🤑ВКЛАДЧИК🤑🤑' и 5 000 ₽!")
+            await send_news_to_channel(message.bot, f"🏅 {user.full_name} получил медаль '🤑🤑ВКЛАДЧИК🤑🤑'")
     
     await message.answer(
         f"✅✨ Вклад открыт! ✨✅\nСумма: {format_balance(amount)} ₽\nПроцент: 20% каждый час.",
@@ -1092,6 +1109,7 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
         added = await add_medal(user, "😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍", session, give_bonus=True)
         if added:
             await notify_user(message.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍' и 5 000 ₽!")
+            await send_news_to_channel(message.bot, f"🏅 {user.full_name} получил медаль '😍💰ДЕНЕЖНАЯ ЩЕДРОСТЬ💰😍'")
     
     local_time = datetime.now() + timedelta(hours=TIMEZONE_OFFSET)
     await notify_user(
@@ -1154,6 +1172,7 @@ async def buy_item(callback: CallbackQuery, state: FSMContext, session: AsyncSes
         added = await add_medal(user, "💜PREMIUM КЛИЕНТ💜", session, give_bonus=True)
         if added:
             await notify_user(callback.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '💜PREMIUM КЛИЕНТ💜' и 5 000 ₽!")
+            await send_news_to_channel(callback.bot, f"🏅 {user.full_name} получил медаль '💜PREMIUM КЛИЕНТ💜'")
     
     await session.commit()
     await add_transaction(session, user.id, -item["price"], "shop_purchase", f"Покупка {item['name']}")
@@ -1210,11 +1229,13 @@ async def gift_item_finish(message: Message, state: FSMContext, session: AsyncSe
         added = await add_medal(recip, "💜PREMIUM КЛИЕНТ💜", session, give_bonus=True)
         if added:
             await notify_user(message.bot, recip.telegram_id, "🎉 Поздравляем! Вы получили медаль '💜PREMIUM КЛИЕНТ💜' и 5 000 ₽ в подарок!")
+            await send_news_to_channel(message.bot, f"🏅 {recip.full_name} получил медаль '💜PREMIUM КЛИЕНТ💜' в подарок")
     
     if user.gifts_sent >= 5:
         added = await add_medal(user, "🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁", session, give_bonus=True)
         if added:
             await notify_user(message.bot, user.telegram_id, "🎉 Вы получили медаль '🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁' и 5 000 ₽!")
+            await send_news_to_channel(message.bot, f"🏅 {user.full_name} получил медаль '🎁💝ПОДАРОЧНАЯ ЩЕДРОСТЬ💝🎁'")
     
     await session.commit()
     await add_transaction(session, user.id, -item["price"], "gift_sent", f"Подарок {item['name']} для {recip.full_name}")
@@ -1257,13 +1278,7 @@ async def profile_referral(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard("profile"))
     await callback.answer()
 
-# ---------- Отправка новостей в канал ----------
-async def send_news_to_channel(bot: Bot, text: str):
-    try:
-        await bot.send_message(NEWS_CHANNEL_ID, f"📰 {text}")
-    except Exception as e:
-        logging.error(f"Не удалось отправить новость в канал: {e}")
-        # ---------- Семья ----------
+# ---------- Семья ----------
 @router.callback_query(F.data == "family")
 async def family_list(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -1491,6 +1506,7 @@ async def charity_donate_amount(message: Message, state: FSMContext, session: As
         added = await add_medal(user, "🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️", session, give_bonus=True)
         if added:
             await notify_user(message.bot, user.telegram_id, "🎉 Вы получили медаль '🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️' и 5 000 ₽!")
+            await send_news_to_channel(message.bot, f"🏅 {user.full_name} получил медаль '🎗️🎗️ПОМОЩЬ БЕДНЫМ🎗️🎗️'")
     
     await notify_user(
         message.bot,
@@ -1578,4 +1594,3 @@ async def unknown_message(message: Message):
         f"😐 Я ВАС НЕ ПОНИМАЮ 😐\n"
         f"{name}, вы делаете что-то не так, нажмите команду /start для перезапуска вашего бота."
     )
-    
