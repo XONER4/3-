@@ -1,18 +1,22 @@
 import json
 import random
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, StateFilter, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.utils.deep_linking import create_start_link
 
-from config import BOT_PASSWORD, START_BALANCE, DAILY_BONUS_BASE, ADMIN_ID, TIMEZONE_OFFSET, MAIN_MENU_TEXT, NEWS_CHANNEL_ID, BOT_USERNAME
+from config import (
+    BOT_PASSWORD, START_BALANCE, DAILY_BONUS_BASE,
+    ADMIN_ID, TIMEZONE_OFFSET, MAIN_MENU_TEXT,
+    NEWS_CHANNEL_ID, NEWS_CHANNEL_USERNAME, BOT_USERNAME
+)
 from models import User, Transaction, CasinoGame, IQResult
 from keyboards import *
 from utils import (
@@ -233,9 +237,7 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         session.add(user)
         await session.commit()
         await session.refresh(user)
-        # Если есть реферер, начисляем бонус пригласившему после авторизации
     else:
-        # Обновим реферера, если не был установлен
         if referrer_id and not user.referrer_id:
             user.referrer_id = referrer_id
             await session.commit()
@@ -247,7 +249,6 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
         )
         await state.set_state(AuthState.waiting_for_password)
     else:
-        # Проверка подписки на канал
         if not user.channel_subscribed:
             await check_channel_subscription(message, user, state)
             return
@@ -259,7 +260,7 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession, 
 
 async def check_channel_subscription(message: Message, user: User, state: FSMContext):
     builder = InlineKeyboardBuilder()
-    builder.button(text="📢 Подписаться на канал", url=f"https://t.me/{BOT_USERNAME.replace('Bot', 'News')}")  # замени на реальный username канала
+    builder.button(text="📢 Подписаться на канал", url=f"https://t.me/{NEWS_CHANNEL_USERNAME}")
     builder.button(text="✅ Я подписался", callback_data="check_sub")
     await message.answer(
         "📰 Для продолжения необходимо подписаться на наш канал новостей!\n"
@@ -273,14 +274,12 @@ async def check_channel_subscription(message: Message, user: User, state: FSMCon
 async def check_subscription(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     user_id = callback.from_user.id
     user = await get_user(user_id, session)
-    # Проверяем реальную подписку через API
     try:
         chat_member = await callback.bot.get_chat_member(chat_id=NEWS_CHANNEL_ID, user_id=user_id)
         if chat_member.status in ["member", "administrator", "creator"]:
             user.channel_subscribed = True
             await session.commit()
             await state.clear()
-            # Если был реферер, начисляем бонус пригласившему
             if user.referrer_id and not user.referrer_id == user_id:
                 referrer = await get_user(user.referrer_id, session)
                 if referrer:
@@ -294,9 +293,10 @@ async def check_subscription(callback: CallbackQuery, state: FSMContext, session
             await callback.message.edit_text("✅ Подписка подтверждена! Добро пожаловать в главное меню.")
             await back_to_main(callback, state, session)
         else:
-            await callback.answer("Вы ещё не подписались на канал!", show_alert=True)
+            await callback.answer("❌ Вы ещё не подписались на канал!", show_alert=True)
     except Exception as e:
-        await callback.answer("Не удалось проверить подписку. Попробуйте позже.", show_alert=True)
+        logging.error(f"Ошибка проверки подписки: {e}")
+        await callback.answer("⚠️ Не удалось проверить подписку. Убедитесь, что бот добавлен в канал как администратор.", show_alert=True)
 
 # ---------- Авторизация ----------
 @router.message(StateFilter(AuthState.waiting_for_password), F.text)
@@ -329,7 +329,6 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
         await message.answer("Ошибка: пользователь не найден.")
         return
     
-    # Проверка уникальности имени
     existing = await get_user_by_name(full_name, session)
     if existing and existing.telegram_id != user_id:
         await message.answer("❌ Это имя уже занято. Пожалуйста, введите другое Имя и Фамилию.")
@@ -339,7 +338,6 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
     user.is_authorized = True
     await session.commit()
     
-    # Проверка подписки на канал
     if not user.channel_subscribed:
         await check_channel_subscription(message, user, state)
         return
@@ -354,7 +352,6 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
         reply_markup=main_menu()
     )
     await state.clear()
-    # Начисление бонуса рефереру, если есть
     if user.referrer_id and not user.referrer_id == user_id:
         referrer = await get_user(user.referrer_id, session)
         if referrer:
@@ -1111,7 +1108,6 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
         f"✅✨ Перевод выполнен! ✨✅\nПолучатель: {recip_name}\nСумма: {format_balance(amount)} ₽",
         reply_markup=main_menu()
     )
-    # Отправка новости в канал
     await send_news_to_channel(message.bot, f"💸 {user.full_name} перевёл {format_balance(amount)} ₽ пользователю {recip_name}")
     await state.clear()
 
@@ -1144,20 +1140,17 @@ async def buy_item(callback: CallbackQuery, state: FSMContext, session: AsyncSes
         return
     
     user.balance -= item["price"]
-    # Сохраняем покупку
     purchases = json.loads(user.purchases) if user.purchases else []
     purchases.append({"name": item["name"], "message": item["message"], "date": datetime.now().isoformat()})
     user.purchases = json.dumps(purchases)
     
-    # Если VIP товар
     if item.get("is_vip"):
         user.is_vip = True
-        # Повышаем звание на один уровень (если не Старший лейтенант)
         ranks = ["Рядовой", "Ефрейтор", "Младший сержант", "Сержант", "Старший сержант", "Лейтенант", "Старший лейтенант"]
         current_idx = ranks.index(user.rank)
         if current_idx < len(ranks) - 1:
             user.rank = ranks[current_idx + 1]
-        user.rank_manual = True  # чтобы не понижалось автоматически
+        user.rank_manual = True
         added = await add_medal(user, "💜PREMIUM КЛИЕНТ💜", session, give_bonus=True)
         if added:
             await notify_user(callback.bot, user.telegram_id, "🎉 Поздравляем! Вы получили медаль '💜PREMIUM КЛИЕНТ💜' и 5 000 ₽!")
@@ -1170,7 +1163,6 @@ async def buy_item(callback: CallbackQuery, state: FSMContext, session: AsyncSes
         reply_markup=back_keyboard("shop_menu")
     )
     await notify_user(callback.bot, user.telegram_id, f"🎉 Вы приобрели {item['name']}!")
-    # Отправка в канал новостей
     await send_news_to_channel(callback.bot, f"🛍️ {user.full_name} приобрёл {item['name']} за {format_balance(item['price'])} ₽")
     await callback.answer()
 
@@ -1204,7 +1196,6 @@ async def gift_item_finish(message: Message, state: FSMContext, session: AsyncSe
     
     user.balance -= item["price"]
     user.gifts_sent += 1
-    # Добавляем получателю
     recip_purchases = json.loads(recip.purchases) if recip.purchases else []
     recip_purchases.append({"name": item["name"], "message": item["message"], "date": datetime.now().isoformat(), "gift_from": user.full_name})
     recip.purchases = json.dumps(recip_purchases)
@@ -1246,7 +1237,7 @@ async def purchased_goods(callback: CallbackQuery, session: AsyncSession):
         return
     
     text = "🛍️✨ Ваши купленные товары: ✨🛍️\n\n"
-    for p in purchases[-10:]:  # последние 10
+    for p in purchases[-10:]:
         text += f"📦 {p['name']}\n{p['message']}\n\n"
     
     await callback.message.edit_text(text, reply_markup=back_keyboard("back_to_main"))
@@ -1272,7 +1263,7 @@ async def send_news_to_channel(bot: Bot, text: str):
         await bot.send_message(NEWS_CHANNEL_ID, f"📰 {text}")
     except Exception as e:
         logging.error(f"Не удалось отправить новость в канал: {e}")
-# ---------- Семья ----------
+        # ---------- Семья ----------
 @router.callback_query(F.data == "family")
 async def family_list(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(
@@ -1587,3 +1578,4 @@ async def unknown_message(message: Message):
         f"😐 Я ВАС НЕ ПОНИМАЮ 😐\n"
         f"{name}, вы делаете что-то не так, нажмите команду /start для перезапуска вашего бота."
     )
+    
