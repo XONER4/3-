@@ -110,4 +110,4 @@ def generate_referral_link(user_id: int) -> str:
     """Генерирует реферальную ссылку на бота с параметром start."""
     from config import BOT_USERNAME
     return f"https://t.me/{BOT_USERNAME}?start={user_id}"
-    BOT_USERNAME = "Ruferutyretywbot"
+    
