@@ -11,15 +11,20 @@ def main_menu():
         InlineKeyboardButton(text="🧠 Тест IQ", callback_data="iq_test")
     )
     builder.row(
-        InlineKeyboardButton(text="🎁 Магазин", callback_data="shop_menu"),
+        InlineKeyboardButton(text="🛍️ Магазин", callback_data="shop_menu"),
         InlineKeyboardButton(text="📊 Личное дело", callback_data="profile")
     )
     builder.row(
-        InlineKeyboardButton(text="📰 Новости", callback_data="news"),
-        InlineKeyboardButton(text="🎖️ Медали", callback_data="medals_info")
+        InlineKeyboardButton(text="🛍️ Купленные товары", callback_data="purchased_goods")
     )
     builder.row(
-        InlineKeyboardButton(text="🎁 Ежедневный бонус", callback_data="daily_bonus"),
+        InlineKeyboardButton(text="📰 Новости", url="https://t.me/your_news_channel")  # замени на ссылку канала
+    )
+    builder.row(
+        InlineKeyboardButton(text="🎖️ Медали", callback_data="medals_info"),
+        InlineKeyboardButton(text="🎁 Ежедневный бонус", callback_data="daily_bonus")
+    )
+    builder.row(
         InlineKeyboardButton(text="👨‍👩‍👧‍👦 Семья", callback_data="family")
     )
     builder.row(
@@ -112,11 +117,25 @@ def deposit_menu_keyboard():
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="bank_menu"))
     return builder.as_markup()
 
+# --- НОВЫЙ МАГАЗИН (5 товаров) ---
 def shop_menu_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🚗 Автомобили", callback_data="shop_cars"))
-    builder.row(InlineKeyboardButton(text="🌸 Цветы", callback_data="shop_flowers"))
+    builder.row(InlineKeyboardButton(text="🧪 ПРОБИВ БОТЫ 🧪", callback_data="shop_item_1"))
+    builder.row(InlineKeyboardButton(text="💝 TELEGRAM PREMIUM 💝", callback_data="shop_item_2"))
+    builder.row(InlineKeyboardButton(text="🔹 VPN СЕРВИС 🔹", callback_data="shop_item_3"))
+    builder.row(InlineKeyboardButton(text="🎈🔮 ВОЗДУШНЫЕ ШАРЫ 🔮🎈", callback_data="shop_item_4"))
+    builder.row(InlineKeyboardButton(text="💜 СЕМЬЯ PREMIUM 💜", callback_data="shop_item_5"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
+    return builder.as_markup()
+
+def shop_item_keyboard(item_id: int, can_gift: bool = False):
+    """Клавиатура для конкретного товара: Купить, Подарить (если can_gift), Назад."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛒 Купить", callback_data=f"buy_item_{item_id}")
+    if can_gift:
+        builder.button(text="🎁 Подарить", callback_data=f"gift_item_{item_id}")
+    builder.button(text="🔙 Назад", callback_data="shop_menu")
+    builder.adjust(1)
     return builder.as_markup()
 
 def back_keyboard(destination: str = "back_to_main"):
@@ -145,5 +164,6 @@ def profile_sections_keyboard():
     builder.row(InlineKeyboardButton(text="🎁 Подарки/Покупки", callback_data="profile_gifts"))
     builder.row(InlineKeyboardButton(text="🏅 Медали", callback_data="profile_medals"))
     builder.row(InlineKeyboardButton(text="📸 Загрузить фото", callback_data="profile_upload_photo"))
+    builder.row(InlineKeyboardButton(text="🔗 Реферальная ссылка", callback_data="profile_referral"))
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main"))
     return builder.as_markup()
