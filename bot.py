@@ -9,15 +9,17 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from config import BOT_TOKEN, ADMIN_ID, TIMEZONE_OFFSET, NEWS_CHANNEL_ID
+from config import BOT_TOKEN, ADMIN_ID, TIMEZONE_OFFSET
 from database import init_db, AsyncSessionLocal
 from handlers import router
 from admin import admin_router
 from models import User, Transaction
-from utils import calculate_deposit_payout, calculate_credit_debt, add_medal, notify_user, send_news_to_channel
+from utils import (
+    calculate_deposit_payout, calculate_credit_debt, add_medal,
+    notify_user, send_news_to_channel
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +28,6 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTM
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# Middleware для автоматической передачи сессии БД в хендлеры
 async def db_session_middleware(handler, event, data):
     async with AsyncSessionLocal() as session:
         data["session"] = session
@@ -37,15 +38,13 @@ dp.update.middleware(db_session_middleware)
 dp.include_router(admin_router)
 dp.include_router(router)
 
-# ---------- Фоновая задача для кредитов и вкладов ----------
+# ---------- Фоновые задачи ----------
 async def background_credit_task():
-    """Периодическая проверка кредитов (начисление процентов, просрочки, автосписание)"""
     while True:
         try:
-            await asyncio.sleep(600)  # каждые 10 минут
+            await asyncio.sleep(600)
             async with AsyncSessionLocal() as session:
                 now = datetime.now()
-                
                 users_with_credit = await session.execute(
                     select(User).where(User.credit_amount > 0)
                 )
@@ -121,22 +120,19 @@ async def background_credit_task():
                 
                 await session.commit()
                 logger.info("ФОНОВАЯ ПРОВЕРКА КРЕДИТОВ ВЫПОЛНЕНА")
-                
         except Exception as e:
             logger.error(f"ОШИБКА В ФОНОВОЙ ЗАДАЧЕ КРЕДИТОВ: {e}")
 
-# ---------- Фоновая задача для отслеживания неактивности в работе ----------
-work_activity = {}  # user_id: {"last_action": datetime, "earned": float, "type": str}
+work_activity = {}
 
 async def background_work_activity_task():
-    """Проверяет неактивность в работе и отправляет новость о заработке."""
     while True:
         try:
-            await asyncio.sleep(60)  # проверяем каждую минуту
+            await asyncio.sleep(60)
             now = datetime.now()
             to_remove = []
             for user_id, data in work_activity.items():
-                if (now - data["last_action"]).total_seconds() >= 300:  # 5 минут
+                if (now - data["last_action"]).total_seconds() >= 300:
                     earned = data["earned"]
                     work_type = "ФИЗИЧЕСКИЙ ТРУД" if data["type"] == "physical" else "УМСТВЕННЫЙ ТРУД"
                     async with AsyncSessionLocal() as session:
@@ -153,7 +149,6 @@ async def background_work_activity_task():
         except Exception as e:
             logger.error(f"ОШИБКА В ФОНОВОЙ ЗАДАЧЕ РАБОТЫ: {e}")
 
-# Функции для обновления активности из хендлеров
 def update_work_activity(user_id: int, amount: float, work_type: str):
     now = datetime.now()
     if user_id in work_activity:
@@ -162,7 +157,6 @@ def update_work_activity(user_id: int, amount: float, work_type: str):
     else:
         work_activity[user_id] = {"last_action": now, "earned": amount, "type": work_type}
 
-# Экспортируем функцию для использования в handlers
 import handlers
 handlers.update_work_activity = update_work_activity
 
@@ -170,10 +164,8 @@ async def main():
     logger.info("ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ...")
     await init_db()
     logger.info("БАЗА ДАННЫХ ИНИЦИАЛИЗИРОВАНА.")
-    
     asyncio.create_task(background_credit_task())
     asyncio.create_task(background_work_activity_task())
-    
     logger.info("ЗАПУСК БОТА...")
     await dp.start_polling(bot)
 
