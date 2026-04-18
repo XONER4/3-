@@ -20,6 +20,7 @@ from utils import (
     calculate_deposit_payout, calculate_credit_debt, add_medal,
     notify_user, send_news_to_channel
 )
+from work_tracker import work_activity, update_work_activity  # <-- новый модуль
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,17 +61,17 @@ async def background_credit_task():
                             await notify_user(
                                 bot,
                                 user.telegram_id,
-                                f"⚠️ ВНИМАНИЕ! СРОК ПОГАШЕНИЯ КРЕДИТА ИСТЁК!\n"
-                                f"ТЕКУЩИЙ ДОЛГ: {current_debt:,.0f} ₽.\n"
-                                f"ПОЖАЛУЙСТА, ПОГАСИТЕ КРЕДИТ В БЛИЖАЙШЕЕ ВРЕМЯ, ИНАЧЕ ДОЛГ БУДЕТ СПИСАН АВТОМАТИЧЕСКИ."
+                                f"⚠️ Внимание! Срок погашения кредита истёк!\n"
+                                f"Текущий долг: {current_debt:,.0f} ₽.\n"
+                                f"Пожалуйста, погасите кредит в ближайшее время, иначе долг будет списан автоматически."
                             )
                             user.credit_overdue_notified = True
-                            added = await add_medal(user, "🔴ДОЛЖНИК🔴", session)
+                            added = await add_medal(user, "🔴Должник🔴", session)
                             if added:
                                 await notify_user(
                                     bot,
                                     user.telegram_id,
-                                    "🎉 ВЫ ПОЛУЧИЛИ МЕДАЛЬ '🔴ДОЛЖНИК🔴' ЗА ПРОСРОЧКУ КРЕДИТА!"
+                                    "🎉 Вы получили медаль '🔴Должник🔴' за просрочку кредита!"
                                 )
                         
                         if now > user.credit_due_date + timedelta(hours=5):
@@ -87,16 +88,16 @@ async def background_credit_task():
                                     user_id=user.id,
                                     amount=-current_debt,
                                     type="credit_auto_repay",
-                                    description="АВТОМАТИЧЕСКОЕ ПОГАШЕНИЕ ПРОСРОЧЕННОГО КРЕДИТА"
+                                    description="Автоматическое погашение просроченного кредита"
                                 )
                                 session.add(trans)
                                 await session.commit()
                                 await notify_user(
                                     bot,
                                     user.telegram_id,
-                                    f"✅ ВАШ ПРОСРОЧЕННЫЙ КРЕДИТ АВТОМАТИЧЕСКИ ПОГАШЕН.\n"
-                                    f"СПИСАНО: {current_debt:,.0f} ₽\n"
-                                    f"ОСТАТОК НА БАЛАНСЕ: {user.balance:,.0f} ₽"
+                                    f"✅ Ваш просроченный кредит автоматически погашен.\n"
+                                    f"Списано: {current_debt:,.0f} ₽\n"
+                                    f"Остаток на балансе: {user.balance:,.0f} ₽"
                                 )
                             else:
                                 if user.balance > 0:
@@ -107,23 +108,21 @@ async def background_credit_task():
                                         user_id=user.id,
                                         amount=-user.balance,
                                         type="credit_partial_repay",
-                                        description="ЧАСТИЧНОЕ ПОГАШЕНИЕ ПРОСРОЧЕННОГО КРЕДИТА"
+                                        description="Частичное погашение просроченного кредита"
                                     )
                                     session.add(trans)
                                     await session.commit()
                                     await notify_user(
                                         bot,
                                         user.telegram_id,
-                                        f"⚠️ С ВАШЕГО БАЛАНСА СПИСАНО {user.balance:,.0f} ₽ В СЧЁТ ДОЛГА ПО КРЕДИТУ.\n"
-                                        f"ОСТАТОК ДОЛГА: {user.credit_amount:,.0f} ₽"
+                                        f"⚠️ С вашего баланса списано {user.balance:,.0f} ₽ в счёт долга по кредиту.\n"
+                                        f"Остаток долга: {user.credit_amount:,.0f} ₽"
                                     )
                 
                 await session.commit()
-                logger.info("ФОНОВАЯ ПРОВЕРКА КРЕДИТОВ ВЫПОЛНЕНА")
+                logger.info("Фоновая проверка кредитов выполнена")
         except Exception as e:
-            logger.error(f"ОШИБКА В ФОНОВОЙ ЗАДАЧЕ КРЕДИТОВ: {e}")
-
-work_activity = {}
+            logger.error(f"Ошибка в фоновой задаче кредитов: {e}")
 
 async def background_work_activity_task():
     while True:
@@ -134,39 +133,32 @@ async def background_work_activity_task():
             for user_id, data in work_activity.items():
                 if (now - data["last_action"]).total_seconds() >= 300:
                     earned = data["earned"]
-                    work_type = "ФИЗИЧЕСКИЙ ТРУД" if data["type"] == "physical" else "УМСТВЕННЫЙ ТРУД"
+                    work_type = "Физический труд" if data["type"] == "physical" else "Умственный труд"
                     async with AsyncSessionLocal() as session:
                         user = await session.execute(select(User).where(User.telegram_id == user_id))
                         user = user.scalar_one_or_none()
                         if user:
                             await send_news_to_channel(
                                 bot,
-                                f"💼✨ {user.full_name} ЗАРАБОТАЛ {earned:,.0f} ₽ НА РАБОТЕ ({work_type})! ✨💼"
+                                f"💼✨ {user.full_name} заработал {earned:,.0f} ₽ на работе ({work_type})! ✨💼"
                             )
                     to_remove.append(user_id)
             for uid in to_remove:
                 del work_activity[uid]
         except Exception as e:
-            logger.error(f"ОШИБКА В ФОНОВОЙ ЗАДАЧЕ РАБОТЫ: {e}")
+            logger.error(f"Ошибка в фоновой задаче работы: {e}")
 
-def update_work_activity(user_id: int, amount: float, work_type: str):
-    now = datetime.now()
-    if user_id in work_activity:
-        work_activity[user_id]["last_action"] = now
-        work_activity[user_id]["earned"] += amount
-    else:
-        work_activity[user_id] = {"last_action": now, "earned": amount, "type": work_type}
-
+# Экспортируем update_work_activity для использования в handlers
 import handlers
 handlers.update_work_activity = update_work_activity
 
 async def main():
-    logger.info("ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ...")
+    logger.info("Инициализация базы данных...")
     await init_db()
-    logger.info("БАЗА ДАННЫХ ИНИЦИАЛИЗИРОВАНА.")
+    logger.info("База данных инициализирована.")
     asyncio.create_task(background_credit_task())
     asyncio.create_task(background_work_activity_task())
-    logger.info("ЗАПУСК БОТА...")
+    logger.info("Запуск бота...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
