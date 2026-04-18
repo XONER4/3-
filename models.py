@@ -11,10 +11,10 @@ class User(Base):
     full_name = Column(String, default="Не указано", unique=True)
     balance = Column(Float, default=15000.0)
     registered_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_bonus = Column(DateTime(timezone=True), nullable=True)  # теперь ежечасный бонус
+    last_bonus = Column(DateTime(timezone=True), nullable=True)
     is_authorized = Column(Boolean, default=False)
     channel_subscribed = Column(Boolean, default=False)
-    is_banned = Column(Boolean, default=False)  # блокировка пользователя
+    is_banned = Column(Boolean, default=False)
     
     credit_amount = Column(Float, default=0.0)
     credit_original = Column(Float, default=0.0)
@@ -42,7 +42,7 @@ class User(Base):
     casino_bets_count = Column(Integer, default=0)
     loans_taken = Column(Integer, default=0)
     deposits_made = Column(Integer, default=0)
-    hourly_bonus_count = Column(Integer, default=0)  # счётчик ежечасных бонусов
+    hourly_bonus_count = Column(Integer, default=0)
     
     photo_id = Column(String, nullable=True)
     
@@ -50,7 +50,6 @@ class User(Base):
     invited_count = Column(Integer, default=0)
     is_vip = Column(Boolean, default=False)
     
-    # Заработок по видам работы (для рейтинга)
     work_physical_earned = Column(Float, default=0.0)
     work_mental_earned = Column(Float, default=0.0)
     
