@@ -18,7 +18,6 @@ def main_menu():
         InlineKeyboardButton(text="📰 НОВОСТИ", url="https://t.me/novostibots13")
     )
     builder.row(
-        InlineKeyboardButton(text="🏅 МЕДАЛИ", callback_data="medals_info"),
         InlineKeyboardButton(text="🎁 ЕЖЕЧАСНЫЙ БОНУС", callback_data="hourly_bonus")
     )
     builder.row(
@@ -29,9 +28,6 @@ def main_menu():
     )
     builder.row(
         InlineKeyboardButton(text="📚 ОБУЧЕНИЕ", callback_data="learning_menu")
-    )
-    builder.row(
-        InlineKeyboardButton(text="❓ ПОМОЩЬ", callback_data="help")
     )
     return builder.as_markup()
 
@@ -125,8 +121,7 @@ def shop_menu_keyboard():
     builder.row(InlineKeyboardButton(text="🧪 ПРОБИВ БОТЫ 🧪", callback_data="shop_item_1"))
     builder.row(InlineKeyboardButton(text="💝 TELEGRAM PREMIUM 💝", callback_data="shop_item_2"))
     builder.row(InlineKeyboardButton(text="🔹 VPN СЕРВИС 🔹", callback_data="shop_item_3"))
-    builder.row(InlineKeyboardButton(text="🎈🔮 ВОЗДУШНЫЕ ШАРЫ 🔮🎈", callback_data="shop_item_4"))
-    builder.row(InlineKeyboardButton(text="💜 СЕМЬЯ PREMIUM 💜", callback_data="shop_item_5"))
+    builder.row(InlineKeyboardButton(text="💜 СЕМЬЯ PREMIUM 💜", callback_data="shop_item_4"))
     builder.row(InlineKeyboardButton(text="🔙 НАЗАД", callback_data="back_to_main"))
     return builder.as_markup()
 
@@ -155,7 +150,6 @@ def admin_panel_keyboard():
     builder.row(InlineKeyboardButton(text="✏️ СМЕНИТЬ ИМЯ", callback_data="admin_rename"))
     builder.row(InlineKeyboardButton(text="🔐 СМЕНИТЬ ПАРОЛЬ", callback_data="admin_change_password"))
     builder.row(InlineKeyboardButton(text="📢 РАССЫЛКА", callback_data="admin_broadcast"))
-    builder.row(InlineKeyboardButton(text="🆕 КАСТОМНАЯ КНОПКА", callback_data="admin_custom_button"))
     builder.row(InlineKeyboardButton(text="📝 ИЗМЕНИТЬ ТЕКСТ МЕНЮ", callback_data="admin_change_main_text"))
     builder.row(InlineKeyboardButton(text="🚫 ЗАБЛОКИРОВАТЬ ПОЛЬЗОВАТЕЛЯ", callback_data="admin_ban_user"))
     builder.row(InlineKeyboardButton(text="✅ РАЗБЛОКИРОВАТЬ ПОЛЬЗОВАТЕЛЯ", callback_data="admin_unban_user"))
