@@ -11,7 +11,7 @@ from models import User
 from keyboards import admin_panel_keyboard, back_keyboard
 from handlers import (
     AdminState, BroadcastState, get_user, get_user_by_name,
-    custom_buttons, ALL_MEDALS, back_to_main, send_news_to_channel
+    ALL_MEDALS, back_to_main, send_news_to_channel
 )
 from utils import notify_user, add_medal, add_transaction
 
@@ -20,13 +20,11 @@ from datetime import datetime, timedelta
 
 admin_router = Router()
 
-# ---------- Вспомогательная функция для возврата в админ-панель ----------
 async def back_to_admin_panel(callback: CallbackQuery, state: FSMContext = None):
     if state:
         await state.clear()
     await callback.message.edit_text("🔧 Админ-панель", reply_markup=admin_panel_keyboard())
 
-# ---------- Команда /admin ----------
 @admin_router.message(Command("admin"))
 async def admin_panel(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -34,7 +32,6 @@ async def admin_panel(message: Message):
         return
     await message.answer("🔧 Админ-панель", reply_markup=admin_panel_keyboard())
 
-# ---------- Кнопка "Назад" в админ-панель ----------
 @admin_router.callback_query(F.data == "admin")
 async def admin_back(callback: CallbackQuery, state: FSMContext):
     await back_to_admin_panel(callback, state)
@@ -482,53 +479,6 @@ async def broadcast_send(message: Message, state: FSMContext, session: AsyncSess
         f"✅ Рассылка завершена! Отправлено {count} из {total} пользователям.",
         reply_markup=admin_panel_keyboard()
     )
-    await state.clear()
-
-# --- Кастомная кнопка ---
-@admin_router.callback_query(F.data == "admin_custom_button")
-async def admin_custom_button(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        "Введите текст для кнопки:",
-        reply_markup=back_keyboard("admin")
-    )
-    await state.set_state(AdminState.waiting_for_custom_button_text)
-    await callback.answer()
-
-@admin_router.callback_query(StateFilter(AdminState.waiting_for_custom_button_text), F.data == "admin")
-async def back_from_custom_text(callback: CallbackQuery, state: FSMContext):
-    await back_to_admin_panel(callback, state)
-    await callback.answer()
-
-@admin_router.message(StateFilter(AdminState.waiting_for_custom_button_text))
-async def custom_button_text(message: Message, state: FSMContext):
-    await state.update_data(button_text=message.text)
-    await message.answer(
-        "Введите текст сообщения, которое будет отправляться при нажатии:",
-        reply_markup=back_keyboard("admin")
-    )
-    await state.set_state(AdminState.waiting_for_custom_button_callback)
-
-@admin_router.callback_query(StateFilter(AdminState.waiting_for_custom_button_callback), F.data == "admin")
-async def back_from_custom_cb(callback: CallbackQuery, state: FSMContext):
-    await back_to_admin_panel(callback, state)
-    await callback.answer()
-
-@admin_router.message(StateFilter(AdminState.waiting_for_custom_button_callback))
-async def custom_button_callback(message: Message, state: FSMContext):
-    data = await state.get_data()
-    text = data["button_text"]
-    msg_text = message.text
-    cb_data = f"custom_{len(custom_buttons)}"
-    custom_buttons[cb_data] = msg_text
-    
-    builder = InlineKeyboardBuilder()
-    builder.button(text=text, callback_data=cb_data)
-    await message.bot.send_message(
-        ADMIN_ID,
-        f"✅ Кастомная кнопка создана!\nТекст: {text}\nСообщение: {msg_text}",
-        reply_markup=builder.as_markup()
-    )
-    await message.answer("Кнопка добавлена в админ-чат.", reply_markup=admin_panel_keyboard())
     await state.clear()
 
 # --- Изменить текст главного меню ---
