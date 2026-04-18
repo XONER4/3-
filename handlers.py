@@ -24,9 +24,9 @@ from utils import (
     calculate_credit_debt, get_rank_conditions, get_medals_info,
     RANK_BONUS_MULTIPLIER, notify_user, RANK_REWARDS, generate_referral_link,
     get_random_mental_task, check_mental_answer, get_work_rating,
-    send_news_to_channel, add_transaction, MEDAL_BONUSES
+    send_news_to_channel, add_transaction
 )
-from work_tracker import update_work_activity  # <-- из нового модуля
+from work_tracker import update_work_activity
 
 router = Router()
 
@@ -87,7 +87,7 @@ class CharityState(StatesGroup):
 class MentalWorkState(StatesGroup):
     answering = State()
 
-# ---------- Глобальный словарь для кастомных кнопок ----------
+# ---------- Глобальный словарь для кастомных кнопок (не используется после удаления) ----------
 custom_buttons = {}
 
 # ---------- Вспомогательные функции ----------
@@ -150,7 +150,7 @@ IQ_QUESTIONS = [
     {"q": "Сколько сторон у куба?", "o": ["4", "5", "6", "8"], "a": 2},
 ]
 
-# Товары для магазина
+# Товары для магазина (4 товара)
 SHOP_ITEMS = [
     {
         "id": 1,
@@ -175,13 +175,6 @@ SHOP_ITEMS = [
     },
     {
         "id": 4,
-        "name": "🎈🔮 Воздушные шары 🔮🎈",
-        "price": 20000,
-        "description": "🎁🎈 После покупки товара вы получаете ссылку на сообщество «ВКонтакте», где можно заказать воздушные шарики! 🎈🎁",
-        "message": "🎈 https://vk.ru/airbubblesklin 🎈\n✅ Ссылка на сообщество «💙ВКонтакте💙»."
-    },
-    {
-        "id": 5,
         "name": "💜 Семья premium 💜",
         "price": 120000,
         "description": "💜 После покупки товара вы получаете «💟Premium💟» функции в боте:\n✅ Все кнопки перекрасятся в фиолетовый текст\n✅ В личном деле добавится надпись 💜Vip💜\n✅ Повышение в звании без ограничений\n✅ Медаль «💜Premium клиент💜»",
@@ -324,7 +317,7 @@ async def process_fullname(message: Message, state: FSMContext, session: AsyncSe
         await message.answer("Пожалуйста, введите и имя, и фамилию через пробел.")
         return
     
-    full_name = " ".join(name_parts[:2]).title()  # Первая буква заглавная
+    full_name = " ".join(name_parts[:2]).title()
     data = await state.get_data()
     user_id = data["user_id"]
     user = await get_user(user_id, session)
@@ -660,17 +653,15 @@ async def custom_bet_input(message: Message, state: FSMContext):
         )
         await state.set_state(None)
 
-# ---------- Тест IQ (без списания/начисления денег, только медали) ----------
+# ---------- Тест IQ ----------
 @router.callback_query(F.data == "iq_test")
 async def iq_test_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     user = await get_user(callback.from_user.id, session)
-    # Проверяем, проходил ли пользователь тест ранее (для рейтинга)
     existing_result = await session.execute(
         select(IQResult).where(IQResult.user_id == user.id)
     )
     if existing_result.scalar_one_or_none():
         await callback.answer("Вы уже проходили тест IQ. Рейтинг учитывает только первую попытку.", show_alert=True)
-        # Но проходить снова можно (без начисления денег и медалей)
     builder = InlineKeyboardBuilder()
     builder.button(text="🚫 Отменить тест", callback_data="cancel_iq")
     await callback.message.edit_text(
@@ -725,7 +716,6 @@ async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: li
     correct = sum(answers)
     total = len(answers)
     
-    # Проверяем, есть ли уже результат (первый раз)
     existing_result = await session.execute(
         select(IQResult).where(IQResult.user_id == user.id)
     )
@@ -750,7 +740,6 @@ async def finish_iq_test(callback: CallbackQuery, state: FSMContext, answers: li
             bonus = MEDAL_BONUSES.get(medal, 0)
             await notify_user(callback.bot, user.telegram_id, f"🎉 Поздравляем! Вы получили медаль '{medal}' и {bonus:,} ₽!")
             await send_news_to_channel(callback.bot, f"🏅 {user.full_name} получил медаль '{medal}'")
-        # Сохраняем результат
         iq_result = IQResult(
             user_id=user.id,
             correct_answers=correct,
@@ -1126,7 +1115,8 @@ async def transfer_amount(message: Message, state: FSMContext, session: AsyncSes
     )
     await send_news_to_channel(message.bot, f"💸 {user.full_name} перевёл {format_balance(amount)} ₽ пользователю {recip_name}")
     await state.clear()
-    # ---------- Магазин ----------
+
+# ---------- Магазин ----------
 @router.callback_query(F.data == "shop_menu")
 async def shop_menu(callback: CallbackQuery):
     await callback.message.edit_text("🛍️✨ Добро пожаловать в магазин! ✨🛍️\nВыберите товар:", reply_markup=shop_menu_keyboard())
@@ -1502,7 +1492,7 @@ async def charity_rating(callback: CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=back_keyboard("charity"))
     await callback.answer()
 
-# ---------- Обучение (включает бывшие Помощь и Медали) ----------
+# ---------- Обучение ----------
 @router.callback_query(F.data == "learning_menu")
 async def learning_menu(callback: CallbackQuery):
     await callback.message.edit_text("📚✨ Выберите раздел обучения: ✨📚", reply_markup=learning_menu_keyboard())
@@ -1561,25 +1551,6 @@ async def learn_shop(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=back_keyboard("learn_other"))
     await callback.answer()
 
-@router.callback_query(F.data == "learn_help")
-async def learn_help(callback: CallbackQuery):
-    text = (
-        "❓✨ Помощь: ✨❓\n"
-        "• Сбербанк — баланс, переводы, вклады (20%/час), кредиты (30%/5ч), благотворительность\n"
-        "• Казино — кубик (x6) и слоты (x3, x7)\n"
-        "• Тест iq — 15 вопросов, медали за первую попытку\n"
-        "• Магазин — полезные товары и Premium статус\n"
-        "• Профиль — статистика, звания, медали, реферальная ссылка\n"
-        "• Новости — подпишитесь на наш канал (кнопка ведёт в канал)\n"
-        "• Семья — профили всех игроков\n"
-        "• Ежечасный бонус — растёт с званием\n"
-        "• Работа — физический и умственный труд\n"
-        "• Обучение — подробно о званиях, медалях и другом\n"
-        "• Приглашайте друзей и получайте 25 000 ₽ за каждого!"
-    )
-    await callback.message.edit_text(text, reply_markup=back_keyboard("learning_menu"))
-    await callback.answer()
-
 # ---------- Рейтинг IQ ----------
 @router.callback_query(F.data == "iq_rating")
 async def iq_rating(callback: CallbackQuery, session: AsyncSession):
@@ -1624,7 +1595,6 @@ async def physical_work_brick(callback: CallbackQuery, session: AsyncSession):
     user.work_physical_earned += 57
     await session.commit()
     await add_transaction(session, user.id, 57, "work_physical", "Физический труд: кирпич")
-    # Обновляем активность для фоновой задачи
     update_work_activity(user.telegram_id, 57, "physical")
     await callback.answer("+57 ₽! Кирпич уложен.", show_alert=False)
     await callback.message.edit_text(
@@ -1677,7 +1647,6 @@ async def mental_work_answer(message: Message, state: FSMContext, session: Async
         earned += 3112
         await add_transaction(session, user.id, 3112, "work_mental", "Умственный труд: правильный ответ")
         await session.commit()
-        # Обновляем активность
         update_work_activity(user.telegram_id, 3112, "mental")
     
     new_task = get_random_mental_task()
@@ -1737,4 +1706,3 @@ async def unknown_message(message: Message):
         f"😐 Я вас не понимаю 😐\n"
         f"{name}, вы делаете что-то не так, нажмите команду /start для перезапуска вашего бота."
     )
-    
